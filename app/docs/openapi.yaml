@@ -1,0 +1,524 @@
+openapi: 3.1.0
+info:
+  title: Production-Ready AWS DevOps Platform API
+  version: 1.0.0
+  description: >
+    Versioned operational task API with PostgreSQL persistence, JWT bearer
+    authentication, and per-user task ownership authorization.
+servers:
+  - url: http://localhost:3000
+    description: Local development
+tags:
+  - name: Authentication
+  - name: Tasks
+  - name: Health
+  - name: Information
+security:
+  - bearerAuth: []
+paths:
+  /api/v1/auth/login:
+    post:
+      operationId: login
+      tags: [Authentication]
+      security: []
+      summary: Exchange administrator-provisioned credentials for an access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Login'
+      responses:
+        '200':
+          description: Short-lived bearer access token
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/AccessToken'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/AuthenticationFailed'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /api/v1/auth/me:
+    get:
+      operationId: getCurrentUser
+      tags: [Authentication]
+      summary: Retrieve the authenticated account
+      responses:
+        '200':
+          description: Current user; password hashes are never returned
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+  /api/v1/tasks:
+    get:
+      operationId: listTasks
+      tags: [Tasks]
+      summary: List operational tasks
+      responses:
+        '200':
+          description: Task collection
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Task'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      operationId: createTask
+      tags: [Tasks]
+      summary: Create an operational task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTask'
+      responses:
+        '201':
+          description: Task created
+          headers:
+            Location:
+              schema:
+                type: string
+              description: URL of the created task
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Task'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/tasks/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Task UUID
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getTask
+      tags: [Tasks]
+      summary: Retrieve a task
+      responses:
+        '200':
+          description: Task
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Task'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    patch:
+      operationId: updateTask
+      tags: [Tasks]
+      summary: Update task fields
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTask'
+      responses:
+        '200':
+          description: Updated task
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Task'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      operationId: deleteTask
+      tags: [Tasks]
+      summary: Delete a task
+      responses:
+        '204':
+          description: Task deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/info:
+    get:
+      operationId: getApplicationInfo
+      tags: [Information]
+      security: []
+      summary: Get application information
+      responses:
+        '200':
+          description: Application name and API version
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [name, version, apiVersion]
+                    properties:
+                      name:
+                        type: string
+                      version:
+                        type: string
+                      apiVersion:
+                        type: string
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /health/live:
+    get:
+      operationId: getLiveness
+      tags: [Health]
+      security: []
+      summary: Check whether the process can respond
+      responses:
+        '200':
+          description: Process is responding
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    const: ok
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+  /health/ready:
+    get:
+      operationId: getReadiness
+      tags: [Health]
+      security: []
+      summary: Check whether the application can accept traffic
+      responses:
+        '200':
+          description: Application is ready
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    const: ready
+        '503':
+          description: PostgreSQL unavailable or application is shutting down
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    const: not_ready
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  headers:
+    RequestId:
+      description: Request correlation ID
+      schema:
+        type: string
+  schemas:
+    Login:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 15
+          maxLength: 128
+    AccessToken:
+      type: object
+      required: [accessToken, tokenType, expiresIn]
+      properties:
+        accessToken:
+          type: string
+          description: Signed access token; valid until expiration and not revocable.
+        tokenType:
+          const: Bearer
+        expiresIn:
+          type: integer
+          description: Token lifetime in seconds.
+    User:
+      type: object
+      required: [id, email, role, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [user, admin]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    Task:
+      type: object
+      required: [id, title, description, status, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 2000
+        status:
+          type: string
+          enum: [pending, in_progress, completed]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CreateTask:
+      type: object
+      additionalProperties: false
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 2000
+        status:
+          type: string
+          enum: [pending, in_progress, completed]
+    UpdateTask:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 2000
+        status:
+          type: string
+          enum: [pending, in_progress, completed]
+    Error:
+      type: object
+      required: [code, message, requestId]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        requestId:
+          type: string
+        details:
+          type: array
+          items:
+            type: object
+            required: [path, message]
+            properties:
+              path:
+                type: string
+              message:
+                type: string
+  responses:
+    AuthenticationFailed:
+      description: Credentials are invalid
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Missing, invalid, expired, or revoked-user access token
+      headers:
+        WWW-Authenticate:
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                $ref: '#/components/schemas/Error'
+    BadRequest:
+      description: Invalid JSON, task ID, or request fields
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Task does not exist or is owned by another user
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                $ref: '#/components/schemas/Error'
+    MethodNotAllowed:
+      description: HTTP method is not supported for this endpoint
+      headers:
+        Allow:
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                $ref: '#/components/schemas/Error'
+    PayloadTooLarge:
+      description: Request body exceeds 16 KiB
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                $ref: '#/components/schemas/Error'
+    RateLimited:
+      description: Request rate limit exceeded
+      headers:
+        Retry-After:
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                $ref: '#/components/schemas/Error'
+    InternalError:
+      description: Unexpected server error; internal details are not returned
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error:
+                $ref: '#/components/schemas/Error'

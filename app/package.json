@@ -1,0 +1,36 @@
+{
+  "name": "production-ready-aws-devops-platform-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Versioned operational task API for the production-ready-aws-devops-platform project",
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "db:migrate": "node src/db/migrate-cli.js",
+    "provision:admin": "node src/cli/provision-account.js admin",
+    "provision:user": "node src/cli/provision-account.js user",
+    "test": "node --test tests/api.test.js tests/repositories.test.js",
+    "test:integration": "node --test tests/database.integration.js",
+    "coverage": "node --test --experimental-test-coverage --test-coverage-include='src/**/*.js' --test-coverage-lines=70 --test-coverage-functions=70 --test-coverage-branches=60 tests/api.test.js tests/repositories.test.js"
+  },
+  "dependencies": {
+    "argon2": "^0.44.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.1.0",
+    "helmet": "^8.1.0",
+    "jose": "^6.1.0",
+    "pg": "^8.16.3",
+    "pino": "^9.9.4",
+    "pino-http": "^10.5.0",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "supertest": "^7.1.4"
+  }
+}
