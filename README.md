@@ -115,18 +115,25 @@ implementations.
 │   ├── package.json
 │   └── package-lock.json
 ├── terraform/
+│   ├── bootstrap/              # S3 state-backend bootstrap (not applied)
 │   ├── environments/
-│   │   ├── dev/                   # Planned development configuration
-│   │   └── prod/                  # Planned production configuration
+│   │   ├── dev/                 # Development root, backend key, and provider lock
+│   │   └── prod/                # Production root, backend key, and provider lock
 │   └── modules/
 │       ├── alb/                   # Planned load balancer module
+│       ├── ecr/                   # Planned container registry module
 │       ├── ecs/                   # Planned ECS service module
+│       ├── iam/                   # Planned IAM module
 │       ├── monitoring/            # Planned observability module
-│       └── vpc/                   # Planned network module
+│       ├── rds/                   # Planned database module
+│       ├── security/              # Planned security-group module
+│       ├── vpc/                   # Implemented VPC and flow-log module
+│       └── networking/            # Implemented routing, NAT, and S3 endpoint module
 ├── scripts/                       # Planned operational and development scripts
 ├── docs/
 │   ├── containerisation.md        # Container build, runtime, security, and verification
-│   └── database-and-authentication.md
+│   ├── database-and-authentication.md
+│   └── terraform-architecture.md  # State, environment, security, and validation design
 ├── compose.yaml                   # Hardened local API, PostgreSQL, and isolated test services
 ├── .gitignore
 └── README.md
@@ -134,10 +141,18 @@ implementations.
 
 ## 5. Infrastructure Design
 
-Terraform is planned around reusable modules for the VPC, ALB, ECS service, and
-monitoring, with separate development and production environment configurations.
-This structure is intended to make common infrastructure consistent while
-allowing environment-specific inputs and deployment controls.
+Terraform now has separate dev/prod roots, consistent AWS provider and
+version constraints, common tagging and naming inputs, and a separate
+not-yet-applied bootstrap configuration for the S3 state bucket. Environment
+state keys are distinct and use native S3 lockfiles. The backend bucket name is
+intentionally not committed because it has not been created.
+
+Reusable VPC and networking modules are implemented for dev and prod; security,
+ALB, ECR, ECS, RDS, IAM, Secrets Manager, and monitoring modules remain to be
+implemented. See
+[`docs/terraform-architecture.md`](./docs/terraform-architecture.md) for
+backend setup, authentication, environment tradeoffs, recovery, validation,
+and the proposed implementation sequence.
 
 The target network places the ALB in public subnets and ECS tasks in private
 subnets across multiple Availability Zones. Security groups will constrain
@@ -146,10 +161,9 @@ use appropriately scoped IAM roles. ECR will provide the image source, and
 Secrets Manager will hold runtime secrets rather than embedding them in source
 or container images.
 
-Terraform state management, environment promotion controls, network egress, and
-specific sizing and scaling values remain design and implementation decisions;
-they will be documented alongside the corresponding configuration rather than
-assumed here.
+Infrastructure modules, environment promotion controls, network egress, and
+specific sizing and scaling values remain to be implemented; no AWS resources
+have been provisioned.
 
 ## 6. CI/CD Architecture
 
@@ -276,8 +290,11 @@ unimplemented.
 | Dependency and image scanning | Delivered | `npm audit` reported zero advisories. Docker Scout baseline was 79 findings (0 critical, 13 high, 24 medium, 42 low); final AMD64 and ARM64 images each report no vulnerable packages. |
 | Container security assessment | Delivered | Baseline package/CVE findings, remediation rationale, final scan results, and ongoing scanning policy are recorded in `docs/container-security-assessment.md`. |
 | Containerisation documentation | Delivered | Build, runtime, health, security, scanning, and platform guidance is in `docs/containerisation.md`. |
-| Terraform modules and environments | Planned | Module and environment directories are empty placeholders. |
-| AWS networking, ECS, ALB, ECR, IAM, and secrets | Planned | No AWS resources or Terraform configuration exist. |
+| Terraform foundation | Delivered | Terraform/provider constraints, dev/prod roots, provider lockfiles, tagging inputs, partial S3 backend configuration with native locking, and separate local-state bootstrap are present. No apply was run. |
+| VPC and networking modules | Delivered (offline) | Reusable VPC/subnet/IGW and networking/NAT/route/S3 endpoint modules are implemented; dev uses a single NAT and prod defaults to per-AZ NAT. Native mocked tests and Checkov pass locally; no AWS deployment was performed. |
+| Terraform infrastructure modules | Partial | VPC and networking are implemented; security, ALB, ECR, ECS, RDS, IAM, and monitoring remain planned. |
+| Terraform validation | Delivered | `terraform fmt -recursive` and `terraform validate` passed for VPC/networking modules and dev/prod roots using Terraform v1.17.2 and AWS provider v6.73.0. Native mocked tests passed 3 runs. |
+| AWS workload infrastructure | Planned | VPC, RDS, ECS, ALB, ECR, IAM workload roles, and monitoring are not implemented or provisioned. The state-backend bootstrap is configuration only and has not been applied. |
 | GitHub Actions validation and deployment | Planned | `.github/workflows/` contains no workflows. |
 | Security scanning and OIDC authentication | Planned | No workflows or AWS identity configuration exist. |
 | CloudWatch logs, metrics, dashboards, and alerts | Planned | No monitoring configuration exists. |

@@ -1,0 +1,8 @@
+project_name        = "production-ready-aws-devops-platform"
+aws_region          = "eu-west-1"
+aws_profile         = null
+expected_account_id = "" # Replace with the intended 12-digit account ID before planning.
+
+additional_tags = {
+  CostCentre = "platform"
+}
