@@ -311,6 +311,3 @@ operational documentation are implemented. No AWS infrastructure is deployed.
 | GitHub Actions deployment and AWS OIDC | Planned | No deployment workflow or AWS identity configuration exists. |
 | CloudWatch logs, metrics, dashboards, and alerts | Delivered (offline) | Existing ECS logs are reused; metric alarms and dashboards are configured but disabled by default and not deployed. SNS subscriptions are not created. |
 | AWS runbooks and architecture diagrams | Partial | Seven operational runbooks and architecture documentation are present; live AWS validation and architecture diagrams remain outstanding. |
-
-Implementation claims describe code and offline validation only. AWS behavior,
-costs, alert delivery, and deployment have not been verified in a live account.
