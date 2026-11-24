@@ -75,6 +75,21 @@ resource "aws_route_table_association" "private" {
   route_table_id = aws_route_table.private[each.key].id
 }
 
+resource "aws_route_table" "database" {
+  vpc_id = var.vpc_id
+
+  tags = merge(var.tags, {
+    Name = "${var.name_prefix}-database-rt"
+  })
+}
+
+resource "aws_route_table_association" "database" {
+  for_each = var.database_subnet_ids
+
+  subnet_id      = each.value
+  route_table_id = aws_route_table.database.id
+}
+
 resource "aws_vpc_endpoint" "s3" {
   count = var.enable_s3_gateway_endpoint ? 1 : 0
 

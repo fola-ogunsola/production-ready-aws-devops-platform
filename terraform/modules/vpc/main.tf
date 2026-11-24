@@ -12,6 +12,13 @@ locals {
       cidr = var.private_subnet_cidrs[index]
     }
   }
+
+  database_subnet_map = {
+    for index, availability_zone in var.availability_zones :
+    availability_zone => {
+      cidr = var.database_subnet_cidrs[index]
+    }
+  }
 }
 
 resource "aws_vpc" "this" {
@@ -67,6 +74,20 @@ resource "aws_subnet" "private" {
     Name                              = "${var.name_prefix}-private-${each.key}"
     Tier                              = "private"
     "kubernetes.io/role/internal-elb" = "1"
+  })
+}
+
+resource "aws_subnet" "database" {
+  for_each = local.database_subnet_map
+
+  vpc_id                  = aws_vpc.this.id
+  availability_zone       = each.key
+  cidr_block              = each.value.cidr
+  map_public_ip_on_launch = false
+
+  tags = merge(var.tags, {
+    Name = "${var.name_prefix}-database-${each.key}"
+    Tier = "database"
   })
 }
 

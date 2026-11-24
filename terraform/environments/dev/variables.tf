@@ -95,3 +95,253 @@ variable "enable_s3_gateway_endpoint" {
   type        = bool
   default     = true
 }
+
+variable "application_port" {
+  description = "TCP port exposed by the ECS application."
+  type        = number
+  default     = 3000
+}
+
+variable "database_port" {
+  description = "TCP port exposed by RDS PostgreSQL."
+  type        = number
+  default     = 5432
+}
+
+variable "alb_ingress_cidrs" {
+  description = "Approved IPv4 CIDR ranges allowed to reach the development ALB."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
+variable "enable_alb_http_ingress" {
+  description = "Allow HTTP ingress on the development ALB."
+  type        = bool
+  default     = false
+}
+
+variable "ecs_https_egress_cidrs" {
+  description = "IPv4 destinations for development ECS HTTPS connectivity."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
+variable "alb_scheme" {
+  description = "Placement scheme for the development ALB."
+  type        = string
+  default     = "internet-facing"
+}
+
+variable "enable_alb_deletion_protection" {
+  description = "Enable deletion protection on the development ALB."
+  type        = bool
+  default     = false
+}
+
+variable "enable_alb_access_logs" {
+  description = "Enable development ALB access logs to S3."
+  type        = bool
+  default     = false
+}
+
+variable "alb_access_logs_bucket_id" {
+  description = "Optional existing S3 bucket ID for development ALB access logs."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "alb_acm_certificate_arn" {
+  description = "Existing ACM certificate ARN for development HTTPS. Null disables HTTPS."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "enable_alb_https_listener" {
+  description = "Create the development ALB HTTPS listener."
+  type        = bool
+  default     = false
+}
+
+variable "enable_alb_http_listener" {
+  description = "Create development HTTP-to-HTTPS redirect ingress."
+  type        = bool
+  default     = false
+}
+
+variable "alb_waf_web_acl_arn" {
+  description = "Optional existing WAFv2 Web ACL ARN to associate with the development ALB."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "enable_ecs_service" {
+  description = "Enable ECS deployment only after all real external prerequisites exist."
+  type        = bool
+  default     = false
+}
+
+variable "ecs_image_reference" {
+  description = "Existing ECR image reference with SHA or immutable tag."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "ecs_task_cpu" {
+  description = "Development ECS Fargate CPU units."
+  type        = number
+  default     = 256
+}
+
+variable "ecs_task_memory" {
+  description = "Development ECS Fargate memory in MiB."
+  type        = number
+  default     = 512
+}
+
+variable "ecs_desired_count" {
+  description = "Development ECS desired task count."
+  type        = number
+  default     = 1
+}
+
+variable "ecs_health_check_grace_period" {
+  description = "Development ECS ALB health-check grace period."
+  type        = number
+  default     = 60
+}
+
+variable "ecs_enable_container_insights" {
+  description = "Enable ECS Container Insights in development."
+  type        = bool
+  default     = false
+}
+
+variable "ecs_log_retention_days" {
+  description = "Development ECS application log retention."
+  type        = number
+  default     = 30
+}
+
+variable "ecs_database_host" {
+  description = "Existing RDS or PostgreSQL endpoint for development."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "ecs_database_name" {
+  description = "Existing development PostgreSQL database name."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "ecs_database_user" {
+  description = "Existing restricted development PostgreSQL username."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "ecs_secret_environment_variables" {
+  description = "Existing Secrets Manager ARNs for ECS DATABASE_PASSWORD and JWT_SECRET_BASE64."
+  type        = map(string)
+  default     = {}
+}
+
+variable "ecs_kms_key_arns" {
+  description = "Existing KMS key ARNs needed to decrypt ECS secrets."
+  type        = map(string)
+  default     = {}
+}
+
+variable "ecs_jwt_issuer" {
+  description = "Development JWT issuer URL."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "ecs_jwt_audience" {
+  description = "Development JWT audience."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "rds_instance_class" {
+  type    = string
+  default = "db.t4g.micro"
+}
+
+variable "rds_allocated_storage" {
+  type    = number
+  default = 20
+}
+
+variable "rds_max_allocated_storage" {
+  type    = number
+  default = 100
+}
+
+variable "rds_backup_retention_days" {
+  type    = number
+  default = 7
+}
+
+variable "rds_deletion_protection" {
+  type    = bool
+  default = false
+}
+
+variable "database_subnet_cidrs" {
+  description = "Dedicated private database subnet CIDRs for development."
+  type        = list(string)
+  default     = ["10.20.20.0/24", "10.20.21.0/24"]
+}
+
+variable "ecr_repository_name" {
+  description = "Private development ECR repository name."
+  type        = string
+  default     = "production-ready-aws-devops-platform-dev-api"
+}
+
+variable "ecr_scan_on_push" {
+  description = "Enable basic ECR scan-on-push for the development repository."
+  type        = bool
+  default     = true
+}
+
+variable "ecr_force_delete" {
+  description = "Allow forced repository deletion in development."
+  type        = bool
+  default     = false
+}
+
+variable "ecr_lifecycle_policy_enabled" {
+  description = "Attach the development ECR lifecycle policy."
+  type        = bool
+  default     = true
+}
+
+variable "ecr_production_image_retention" {
+  description = "Development production-tagged image retention count."
+  type        = number
+  default     = 10
+}
+
+variable "ecr_rollback_image_retention" {
+  description = "Development rollback-tagged image retention count."
+  type        = number
+  default     = 5
+}
+
+variable "ecr_sha_image_retention" {
+  description = "Development SHA-tagged image retention count."
+  type        = number
+  default     = 20
+}

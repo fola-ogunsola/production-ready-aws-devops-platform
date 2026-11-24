@@ -95,3 +95,253 @@ variable "enable_s3_gateway_endpoint" {
   type        = bool
   default     = true
 }
+
+variable "application_port" {
+  description = "TCP port exposed by the ECS application."
+  type        = number
+  default     = 3000
+}
+
+variable "database_port" {
+  description = "TCP port exposed by RDS PostgreSQL."
+  type        = number
+  default     = 5432
+}
+
+variable "alb_ingress_cidrs" {
+  description = "Approved IPv4 CIDR ranges allowed to reach the production ALB."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
+variable "enable_alb_http_ingress" {
+  description = "Allow HTTP ingress on the production ALB."
+  type        = bool
+  default     = false
+}
+
+variable "ecs_https_egress_cidrs" {
+  description = "IPv4 destinations for production ECS HTTPS connectivity."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
+variable "alb_scheme" {
+  description = "Placement scheme for the production ALB."
+  type        = string
+  default     = "internet-facing"
+}
+
+variable "enable_alb_deletion_protection" {
+  description = "Enable deletion protection on the production ALB."
+  type        = bool
+  default     = true
+}
+
+variable "enable_alb_access_logs" {
+  description = "Enable production ALB access logs to S3."
+  type        = bool
+  default     = false
+}
+
+variable "alb_access_logs_bucket_id" {
+  description = "Optional existing S3 bucket ID for production ALB access logs."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "alb_acm_certificate_arn" {
+  description = "Existing ACM certificate ARN for production HTTPS. Null disables HTTPS."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "enable_alb_https_listener" {
+  description = "Create the production ALB HTTPS listener."
+  type        = bool
+  default     = false
+}
+
+variable "enable_alb_http_listener" {
+  description = "Create production HTTP-to-HTTPS redirect ingress."
+  type        = bool
+  default     = false
+}
+
+variable "alb_waf_web_acl_arn" {
+  description = "Optional existing WAFv2 Web ACL ARN to associate with the production ALB."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "enable_ecs_service" {
+  description = "Enable ECS deployment only after all real external prerequisites exist."
+  type        = bool
+  default     = false
+}
+
+variable "ecs_image_reference" {
+  description = "Existing ECR image reference with SHA or immutable tag."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "ecs_task_cpu" {
+  description = "Production ECS Fargate CPU units."
+  type        = number
+  default     = 512
+}
+
+variable "ecs_task_memory" {
+  description = "Production ECS Fargate memory in MiB."
+  type        = number
+  default     = 1024
+}
+
+variable "ecs_desired_count" {
+  description = "Production ECS desired task count."
+  type        = number
+  default     = 2
+}
+
+variable "ecs_health_check_grace_period" {
+  description = "Production ECS ALB health-check grace period."
+  type        = number
+  default     = 60
+}
+
+variable "ecs_enable_container_insights" {
+  description = "Enable ECS Container Insights in production."
+  type        = bool
+  default     = true
+}
+
+variable "ecs_log_retention_days" {
+  description = "Production ECS application log retention."
+  type        = number
+  default     = 365
+}
+
+variable "ecs_database_host" {
+  description = "Existing RDS or PostgreSQL endpoint for production."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "ecs_database_name" {
+  description = "Existing production PostgreSQL database name."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "ecs_database_user" {
+  description = "Existing restricted production PostgreSQL username."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "ecs_secret_environment_variables" {
+  description = "Existing Secrets Manager ARNs for ECS DATABASE_PASSWORD and JWT_SECRET_BASE64."
+  type        = map(string)
+  default     = {}
+}
+
+variable "ecs_kms_key_arns" {
+  description = "Existing KMS key ARNs needed to decrypt ECS secrets."
+  type        = map(string)
+  default     = {}
+}
+
+variable "ecs_jwt_issuer" {
+  description = "Production JWT issuer URL."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "ecs_jwt_audience" {
+  description = "Production JWT audience."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "rds_instance_class" {
+  type    = string
+  default = "db.t4g.small"
+}
+
+variable "rds_allocated_storage" {
+  type    = number
+  default = 100
+}
+
+variable "rds_max_allocated_storage" {
+  type    = number
+  default = 500
+}
+
+variable "rds_backup_retention_days" {
+  type    = number
+  default = 14
+}
+
+variable "rds_deletion_protection" {
+  type    = bool
+  default = true
+}
+
+variable "database_subnet_cidrs" {
+  description = "Dedicated private database subnet CIDRs for production."
+  type        = list(string)
+  default     = ["10.30.20.0/24", "10.30.21.0/24", "10.30.22.0/24"]
+}
+
+variable "ecr_repository_name" {
+  description = "Private production ECR repository name."
+  type        = string
+  default     = "production-ready-aws-devops-platform-prod-api"
+}
+
+variable "ecr_scan_on_push" {
+  description = "Enable basic ECR scan-on-push for the production repository."
+  type        = bool
+  default     = true
+}
+
+variable "ecr_force_delete" {
+  description = "Allow forced repository deletion in production."
+  type        = bool
+  default     = false
+}
+
+variable "ecr_lifecycle_policy_enabled" {
+  description = "Attach the production ECR lifecycle policy."
+  type        = bool
+  default     = true
+}
+
+variable "ecr_production_image_retention" {
+  description = "Production production-tagged image retention count."
+  type        = number
+  default     = 30
+}
+
+variable "ecr_rollback_image_retention" {
+  description = "Production rollback-tagged image retention count."
+  type        = number
+  default     = 10
+}
+
+variable "ecr_sha_image_retention" {
+  description = "Production SHA-tagged image retention count."
+  type        = number
+  default     = 50
+}

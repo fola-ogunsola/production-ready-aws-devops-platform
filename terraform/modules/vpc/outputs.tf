@@ -44,3 +44,19 @@ output "private_subnet_cidrs" {
     availability_zone => subnet.cidr_block
   }
 }
+
+output "database_subnet_ids" {
+  description = "Dedicated database subnet IDs keyed by availability zone."
+  value = {
+    for availability_zone, subnet in aws_subnet.database :
+    availability_zone => subnet.id
+  }
+}
+
+output "database_subnet_cidrs" {
+  description = "Dedicated database subnet CIDRs keyed by availability zone."
+  value = {
+    for availability_zone, subnet in aws_subnet.database :
+    availability_zone => subnet.cidr_block
+  }
+}

@@ -126,14 +126,17 @@ implementations.
 │       ├── iam/                   # Planned IAM module
 │       ├── monitoring/            # Planned observability module
 │       ├── rds/                   # Planned database module
-│       ├── security/              # Planned security-group module
+│       ├── security/              # Implemented workload security-group module
 │       ├── vpc/                   # Implemented VPC and flow-log module
 │       └── networking/            # Implemented routing, NAT, and S3 endpoint module
 ├── scripts/                       # Planned operational and development scripts
 ├── docs/
 │   ├── containerisation.md        # Container build, runtime, security, and verification
 │   ├── database-and-authentication.md
-│   └── terraform-architecture.md  # State, environment, security, and validation design
+│   ├── terraform-architecture.md  # State, environment, security, and validation design
+│   ├── ecr-architecture.md        # Repository, scanning, retention, and IAM design
+│   ├── ecs-architecture.md        # ECS, task roles, secrets, logs, and deployment gating
+│   └── rds-and-secrets-architecture.md
 ├── compose.yaml                   # Hardened local API, PostgreSQL, and isolated test services
 ├── .gitignore
 └── README.md
@@ -147,8 +150,8 @@ not-yet-applied bootstrap configuration for the S3 state bucket. Environment
 state keys are distinct and use native S3 lockfiles. The backend bucket name is
 intentionally not committed because it has not been created.
 
-Reusable VPC and networking modules are implemented for dev and prod; security,
-ALB, ECR, ECS, RDS, IAM, Secrets Manager, and monitoring modules remain to be
+Reusable VPC, networking, workload security-group, ALB, and ECR modules are implemented
+for dev and prod; ECS, RDS, IAM, Secrets Manager, and monitoring modules remain to be
 implemented. See
 [`docs/terraform-architecture.md`](./docs/terraform-architecture.md) for
 backend setup, authentication, environment tradeoffs, recovery, validation,
@@ -292,9 +295,14 @@ unimplemented.
 | Containerisation documentation | Delivered | Build, runtime, health, security, scanning, and platform guidance is in `docs/containerisation.md`. |
 | Terraform foundation | Delivered | Terraform/provider constraints, dev/prod roots, provider lockfiles, tagging inputs, partial S3 backend configuration with native locking, and separate local-state bootstrap are present. No apply was run. |
 | VPC and networking modules | Delivered (offline) | Reusable VPC/subnet/IGW and networking/NAT/route/S3 endpoint modules are implemented; dev uses a single NAT and prod defaults to per-AZ NAT. Native mocked tests and Checkov pass locally; no AWS deployment was performed. |
-| Terraform infrastructure modules | Partial | VPC and networking are implemented; security, ALB, ECR, ECS, RDS, IAM, and monitoring remain planned. |
-| Terraform validation | Delivered | `terraform fmt -recursive` and `terraform validate` passed for VPC/networking modules and dev/prod roots using Terraform v1.17.2 and AWS provider v6.73.0. Native mocked tests passed 3 runs. |
-| AWS workload infrastructure | Planned | VPC, RDS, ECS, ALB, ECR, IAM workload roles, and monitoring are not implemented or provisioned. The state-backend bootstrap is configuration only and has not been applied. |
+| Workload security-group module | Delivered (offline) | Reusable ALB, ECS, and RDS security groups use dedicated ingress/egress rule resources; ALB-only ECS ingress and ECS-only RDS ingress are enforced. Mocked tests and local validation pass; no AWS deployment was performed. |
+| Application Load Balancer module | Delivered (offline) | Reusable internet-facing/internal ALB, IP target group, HTTPS listener, optional HTTP redirect, hardened access-log bucket support, deletion protection, and optional WAF association are implemented. Native mocked tests pass; no certificate, DNS, WAF, or AWS resource was created. |
+| Amazon ECR module | Delivered (offline) | Private immutable-repository configuration, AES256 or optional KMS encryption, basic scan-on-push, lifecycle retention, and dev/prod integration are implemented. Native mocked tests pass; no image or AWS repository was created. |
+| ECS and IAM modules | Delivered (offline) | ECS Fargate cluster, gated task-definition/service, private awsvpc networking, execution/task roles, CloudWatch logs, secret references, and deployment rollback configuration are implemented. Native mocked tests pass; no service or AWS resource was deployed. |
+| RDS and Secrets Manager modules | Delivered (offline) | Private RDS subnet placement, PostgreSQL TLS parameter group, managed master credentials, external application secrets, and ECS secret references are implemented. Native mocked tests pass; no database or secret was created. |
+| Terraform infrastructure modules | Partial | VPC, networking, workload security groups, ALB, ECR, ECS, IAM, RDS, and Secrets Manager configuration are implemented; monitoring remains planned. |
+| Terraform validation | Delivered | `terraform fmt -recursive` and `terraform validate` passed for all implemented modules and dev/prod roots using Terraform v1.17.2 and AWS provider v6.73.0. Native mocked tests passed locally. |
+| AWS workload infrastructure | Planned | VPC, RDS, ECS, ALB, ECR, IAM workload roles, and monitoring are not provisioned. ECS and IAM configuration is locally modelled with service creation gated; RDS, Secrets Manager and ACM deployment remain prerequisites. |
 | GitHub Actions validation and deployment | Planned | `.github/workflows/` contains no workflows. |
 | Security scanning and OIDC authentication | Planned | No workflows or AWS identity configuration exist. |
 | CloudWatch logs, metrics, dashboards, and alerts | Planned | No monitoring configuration exists. |

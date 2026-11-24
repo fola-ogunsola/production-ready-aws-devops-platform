@@ -11,9 +11,9 @@ default security groups.
 
 The bootstrap and environment configurations have **not been applied**. No
 AWS resources have been created and no live AWS credentials or plans are used
-by local validation or mocked module tests. Security groups for application
-workloads, ALB, ECR, ECS, RDS, IAM application roles, Secrets Manager, and
-monitoring remain subsequent implementation stages.
+by local validation or mocked module tests. Workload security groups, ALB, and
+ECR, ECS, IAM, RDS and externally populated Secrets Manager metadata are
+implemented locally. Monitoring remains a subsequent implementation stage.
 
 Do not run `terraform apply` or `terraform destroy` as part of validation.
 
@@ -55,7 +55,7 @@ terraform/
     ├── iam/
     ├── monitoring/
     ├── rds/
-    ├── security/
+    ├── security/               # Implemented workload ALB/ECS/RDS groups
     ├── vpc/
     └── networking/
 ```
@@ -249,9 +249,235 @@ Not yet validated in AWS:
 - CloudWatch Logs delivery and KMS key policy behavior.
 - Real security-group-to-workload connectivity.
 
-The next implementation stage will add the workload security-group module and
-its callers before proceeding to ALB, ECS, RDS, ECR, IAM, Secrets Manager, or
-monitoring resources.
+## Workload security-group stage
+
+The reusable security module creates three independent security groups:
+
+- `alb`: HTTPS 443 ingress from caller-approved CIDRs. TCP 80 may be enabled
+  explicitly for HTTP-to-HTTPS redirection. Its only application egress is TCP
+  3000 or the configured application port to the ECS security group.
+- `ecs`: application ingress from the ALB security group only. It can reach RDS
+  on TCP 5432 through the RDS security-group reference, resolve DNS within the
+  VPC, and use TCP 443 for approved CIDR or prefix-list destinations.
+- `rds`: PostgreSQL TCP 5432 ingress from the ECS security group only. It has
+  no application CIDR ingress and no unrestricted outbound rules.
+
+Rules use `aws_vpc_security_group_ingress_rule` and
+`aws_vpc_security_group_egress_rule`; security-group bodies have empty
+`ingress` and `egress` collections. This avoids circular dependencies because
+the groups are created first and cross-references are attached by dedicated
+rules. No SSH rule exists.
+
+ECS service connectivity includes ECR API and Docker-registry access, Secrets
+Manager, CloudWatch Logs and metrics, SSM, and ECS/Fargate control-plane
+dependencies. The correct implementation depends on private subnet design:
+interface VPC endpoints and an S3 gateway endpoint reduce internet exposure,
+while a NAT gateway requires carefully controlled HTTPS egress. This stage
+provides configurable HTTPS CIDRs and managed prefix-list IDs but does not
+create the endpoints or claims that all AWS-service traffic has been tested.
+
+Dev and prod use the same module and default ports. Dev can use one NAT
+gateway and approved test CIDRs; production should use per-AZ NAT or VPC
+endpoints and replace broad CIDRs with approved ranges before deployment.
+Neither environment enables ALB HTTP ingress by default. No AWS workload
+resources are created by this module.
+
+Remaining limitations:
+
+- ALB and ECS/RDS resources are not implemented.
+- ALB approved-CIDR defaults can be widened when public internet ingress is
+  intended; production should use an explicit allowlist.
+- ECS HTTPS egress defaults to `0.0.0.0/0` unless a caller narrows it. This
+  preserves NAT-based AWS connectivity but is not an implied AWS deployment.
+- The module does not yet create VPC endpoints for ECR, Secrets Manager,
+  CloudWatch, SSM, or ECS. It also does not validate live endpoint service names.
+
+## Security scan findings
+
+Checkov passed 50 checks and reported three CKV2_AWS_5 findings for the
+security module: each new security group is not yet attached to a live ALB,
+ECS service, or RDS instance. This is an expected stage-boundary limitation
+because those resources intentionally have not been implemented or deployed.
+The findings will be rechecked when the ALB, ECS, and RDS modules attach the
+groups. They are not suppressed. Environment scans repeat the same findings
+because they reuse the security module.
+
+No public RDS CIDR rule or SSH rule is present. ECS and RDS inbound rules
+use security-group references rather than public CIDRs. RDS has no outbound
+application rules. The ALB public HTTPS and optional HTTP rules are CIDR-based
+because internet ingress is their purpose. ECS HTTPS CIDRs are caller-
+configurable and should be narrowed or replaced with interface/gateway VPC
+endpoints before AWS deployment.
+
+## ALB Checkov findings
+
+The final ALB module scan found 4 remaining findings after SSE-S3 lifecycle,
+ACL, multipart-abort, and deletion-protection controls were added:
+
+- Event notifications are not enabled. This access-log bucket is not an
+  application event bus; a separate notification/SIEM integration is a future
+  operational decision.
+- Server access logging is not enabled on the access-log bucket. Recursive
+  bucket logging was not configured, and no central audit bucket destination
+  has yet been approved.
+- Cross-region replication is not enabled. Replication is a deployment-specific
+  recovery requirement and should be implemented with a separately approved
+  destination, KMS key, and cost model.
+- A public ALB can remain without WAF unless `waf_web_acl_arn` is supplied.
+  The module accepts an existing WAFv2 Web ACL ARN and avoids deploying or
+  assuming an unspecified WAF policy.
+- WAF policy coverage for an AMR/Log4j managed rule set is not asserted.
+  Deployment should attach an independently reviewed WAFv2 Web ACL containing
+  the account-approved rule set.
+- Checkov CKV_AWS_145 is not satisfied with KMS encryption because current
+  standard ALB access-log delivery explicitly requires SSE-S3. This finding is
+  an encryption-method compatibility false positive, not a blanket suppression.
+
+These findings are recorded rather than suppressed. Production should supply
+both an approved WAFv2 Web ACL and access-log destination after AWS account
+controls are reviewed.
+
+## Application Load Balancer stage
+
+The reusable ALB module creates:
+
+- An Application Load Balancer in caller-selected public or internal subnets.
+- An ECS IP-type target group using HTTP on the configured application port.
+- A readiness health check at `/health/ready`, matching HTTP 200.
+- Optional HTTPS TCP 443 listener forwarding to the target group.
+- Optional HTTP TCP 80 listener that redirects to HTTPS with HTTP 301.
+- Optional private S3 access-log storage, or an existing protected bucket ID.
+
+The target group performs no static registration. ECS Fargate task IP addresses
+will be dynamically registered during a later ECS service implementation.
+Readiness is intentionally used instead of a liveness-only endpoint because
+database availability affects whether the API can safely accept traffic.
+
+Health defaults use a 30-second interval, 5-second timeout, two healthy
+consecutive responses, three unhealthy responses, and a 30-second
+deregistration delay. These values can be tuned, but the timeout must remain
+shorter than the interval.
+
+TLS is disabled by default. Enabling HTTPS requires a real existing ACM
+certificate ARN; this repository does not create certificates or DNS records.
+HTTP can be enabled only alongside HTTPS and never forwards directly to ECS.
+The default TLS policy is `ELBSecurityPolicy-TLS13-1-2-2021-06`.
+
+The ALB uses the existing ALB security-group output. It forwards application
+traffic to ECS on TCP 3000, and ECS accepts that traffic only from the ALB
+security group. ECS remains in private subnets and has no public CIDR ingress.
+RDS accepts PostgreSQL traffic only from the ECS security group.
+
+Development defaults to an internet-facing ALB, no deletion protection, no
+access logs, and no public listeners. Production defaults to an internet-facing
+multi-AZ ALB, deletion protection enabled, no access logs until an approved
+bucket is supplied, and no listener until a genuine ACM certificate is configured.
+Both environments provide public subnet placement and the existing approved
+client-CIDR allowlist for future security controls.
+
+Deployment prerequisites include:
+
+1. Create or import a valid ACM certificate for the intended hostname.
+2. Set `alb_acm_certificate_arn` and enable the HTTPS listener.
+3. Optionally enable HTTP for HTTP-301-to-HTTPS behavior.
+4. Supply a protected S3 bucket ID or allow the module to create one.
+5. Create DNS records outside this module once the deployed ALB DNS name exists.
+
+These resources are Terraform configuration only. They have not been planned
+against AWS, created, or verified with live routing or TLS behavior.
+
+The module supports associating an existing WAFv2 Web ACL through
+`waf_web_acl_arn`; neither environment supplies an ARN until WAF is separately
+designed and deployed. Access-log buckets use SSE-S3 encryption, bucket-owner
+enforced ACLs, versioning, public-access blocks, lifecycle expiration after 365
+days, and abort incomplete multipart uploads after seven days. Standard ALB
+access-log delivery supports SSE-S3 rather than SSE-KMS. The bucket policy grants
+the `logdelivery.elasticloadbalancing.amazonaws.com` service principal access
+to the account-specific `AWSLogs/<account-id>/*` object path.
+
+## Amazon ECR stage
+
+The reusable ECR module creates a private repository for the
+`production-ready-aws-devops-platform-api` application. Repository names default
+to environment-specific values in dev and prod. Tags are immutable by default;
+images are identified by Git commit SHA tags such as `sha-<40-character-commit>`
+and optional release tags such as `prod-<sha>` or `rollback-<sha>`.
+
+Repository encryption defaults to AWS-managed AES256. A caller may instead use
+KMS or KMS_DSSE with an account-specific existing key ARN. Basic ECR
+scan-on-push is enabled by default and is part of repository configuration.
+Enhanced Amazon Inspector scanning is separate, registry-aware, and not enabled
+by this module because it can affect other repositories and incur charges.
+
+The lifecycle policy is configured per repository and retains:
+
+- `prod-*` production release images
+- `rollback-*` rollback release images
+- `sha-*` immutable commit images
+- A small number of untagged manifests
+
+Development retains 10 production, 5 rollback, and 20 SHA images. Production
+retains 30 production, 10 rollback, and 50 SHA images. The policy does not expire
+arbitrary deployed tags and does not remove the currently deployed digest unless
+ECS/IAM deployment automation is separately configured to protect it.
+
+No public repository policy is created. `force_delete` defaults to false.
+Future push automation requires `ecr:GetAuthorizationToken`,
+`ecr:BatchCheckLayerAvailability`, `ecr:CompleteLayerUpload`,
+`ecr:InitiateLayerUpload`, `ecr:PutImage`, and `ecr:UploadLayerPart` on the
+environment repository. ECS task-execution roles require authorization and image
+pull permissions, typically `ecr:GetAuthorizationToken`,
+`ecr:BatchCheckLayerAvailability`, `ecr:GetDownloadUrlForLayer`, and
+`ecr:BatchGetImage`.
+
+ECS Checkov findings:
+
+- CKV_AWS_338 reports that development log retention is shorter than one year.
+  The 30-day development default is intentionally cost-conscious and production
+  uses 365 days; retention remains caller-configurable.
+- CKV_AWS_65 reports that development Container Insights is disabled. The
+  development default avoids monitoring overhead and cost, while production
+  enables Container Insights.
+- Secret scanning previously reported synthetic test ARN text as entropy. The
+  test fixtures were replaced with clearly marked placeholder ARNs and contain
+  no credentials.
+
+Checkov reports CKV_AWS_136 for the default AES256 ECR encryption. AWS-managed
+AES256 ECR encryption is valid and is kept as the default because no customer
+key material or key-ARN is required. The module supports KMS and KMS_DSSE for
+callers that need customer-managed key policy or compliance controls. This
+finding is recorded, not suppressed.
+
+## ECS Fargate and IAM stage
+
+The ECS module creates an ECS cluster and an environment-specific application
+log group locally. It models task definitions and Fargate services only when
+explicit deployment prerequisites exist.
+
+Task definitions use `awsvpc`, Linux/X86_64, UID/GID 65532, port 3000,
+`NODE_ENV=production`, a read-only root filesystem, ECS structured logging,
+and `/health/live` container health checks. The ALB continues to use
+`/health/ready`, which verifies PostgreSQL availability.
+
+The ECS service:
+
+- Uses private subnets
+- Disables public IP assignment
+- Attaches the existing ECS security group
+- Registers dynamically with the existing IP target group
+- Uses deployment circuit-breaker rollback
+- Requires the existing HTTPS listener ARN before creation
+
+The IAM module separates ECS task-execution and application task roles.
+Execution-role permissions are limited to the selected ECR repository,
+matching CloudWatch log stream ARN, explicit Secrets Manager ARNs, and explicit
+KMS key ARNs. The application task role has ECS task trust and no AWS
+administrator or blanket application permissions.
+
+Secret values are not represented in module variables or plain environment
+values. ECS task-definition secret references require existing secret ARNs.
+Database host, name and user remain non-secret task environment values; RDS
+and Secrets Manager resources are not created in this stage.
 
 ## Safe teardown
 

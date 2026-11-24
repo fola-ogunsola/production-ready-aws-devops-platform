@@ -48,6 +48,16 @@ variable "private_subnet_cidrs" {
   }
 }
 
+variable "database_subnet_cidrs" {
+  description = "CIDR blocks for dedicated private database subnets, one per availability zone."
+  type        = list(string)
+
+  validation {
+    condition     = length(var.database_subnet_cidrs) >= 2
+    error_message = "At least two database subnet CIDRs are required."
+  }
+}
+
 variable "enable_dns_hostnames" {
   description = "Enable DNS hostnames in the VPC."
   type        = bool

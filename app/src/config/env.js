@@ -10,6 +10,8 @@ const databaseSchema = z.object({
   DATABASE_IDLE_TIMEOUT_MS: z.coerce.number().int().min(1000).max(300000).default(30000),
   DATABASE_CONNECTION_TIMEOUT_MS: z.coerce.number().int().min(100).max(30000).default(3000),
   DATABASE_QUERY_TIMEOUT_MS: z.coerce.number().int().min(100).max(30000).default(5000),
+  DATABASE_SSL: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+  DATABASE_SSL_CA: z.string().optional(),
 });
 
 const applicationSchema = z.object({
@@ -69,6 +71,12 @@ function mapDatabaseConfig(parsed) {
     idleTimeoutMillis: parsed.DATABASE_IDLE_TIMEOUT_MS,
     connectionTimeoutMillis: parsed.DATABASE_CONNECTION_TIMEOUT_MS,
     queryTimeoutMillis: parsed.DATABASE_QUERY_TIMEOUT_MS,
+    ssl: parsed.DATABASE_SSL
+      ? {
+          rejectUnauthorized: true,
+          ca: parsed.DATABASE_SSL_CA || undefined,
+        }
+      : false,
   };
 }
 

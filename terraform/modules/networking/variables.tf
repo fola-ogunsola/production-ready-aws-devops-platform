@@ -28,6 +28,12 @@ variable "private_subnet_ids" {
   type        = map(string)
 }
 
+variable "database_subnet_ids" {
+  description = "Dedicated database subnet IDs keyed by availability zone."
+  type        = map(string)
+  default     = {}
+}
+
 variable "enable_nat_gateway" {
   description = "Create NAT gateways for private subnet internet egress."
   type        = bool

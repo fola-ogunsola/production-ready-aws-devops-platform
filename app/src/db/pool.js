@@ -15,5 +15,6 @@ export function createDatabasePool(config) {
     query_timeout: config.queryTimeoutMillis,
     statement_timeout: config.queryTimeoutMillis,
     application_name: 'production-ready-aws-devops-platform-api',
+    ssl: config.ssl,
   });
 }
