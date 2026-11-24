@@ -139,6 +139,9 @@ jobs:
 
       - name: Trivy JSON scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_SCANNERS: vuln
+          TRIVY_SKIP_VERSION_CHECK: true
         with:
           image-ref: production-ready-aws-devops-platform-api:ci
           format: json
@@ -146,10 +149,12 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: false
           exit-code: "0"
-          args: "--skip-version-check --scanners vuln"
 
       - name: Trivy security gate
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_SCANNERS: vuln
+          TRIVY_SKIP_VERSION_CHECK: true
         with:
           image-ref: production-ready-aws-devops-platform-api:ci
           format: table
@@ -157,7 +162,6 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: false
           exit-code: "1"
-          args: "--skip-version-check --scanners vuln"
 
       - name: Trivy summary
         if: always()
