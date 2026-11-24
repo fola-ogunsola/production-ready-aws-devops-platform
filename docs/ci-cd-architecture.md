@@ -62,6 +62,9 @@ operations. It never runs `apply` or `destroy`.
 - `pull_request_target` is not used.
 - Trivy scans fail on critical or high vulnerabilities without
   `ignore-unfixed`; the JSON and table reports are uploaded regardless.
+- Trivy image scans use `--scanners vuln` and `--skip-version-check` to avoid
+  secret-scanner noise and version-update notices while retaining strict
+  CRITICAL/HIGH vulnerability gates.
 - Checkov findings are reported as workflow output and artifacts.
 - A mutable `latest` tag is not used for deployment references.
 - The Docker workflow uses build-time files and no repository secrets.
