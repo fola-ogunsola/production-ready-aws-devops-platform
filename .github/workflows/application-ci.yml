@@ -1,0 +1,131 @@
+name: Application CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: application-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  application-tests:
+    name: Node.js unit, coverage and integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: task_api_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci_postgres_admin_only
+          DATABASE_USER: task_api_ci
+          DATABASE_PASSWORD: CI-Database-Password-12345!
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d task_api_test"
+          --health-interval 5s
+          --health-retries 15
+          --health-start-period 5s
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Verify lockfile integrity
+        working-directory: app
+        run: npm ci --ignore-scripts --dry-run
+
+      - name: Install dependencies
+        working-directory: app
+        run: npm ci --ignore-scripts
+
+      - name: Run unit tests
+        working-directory: app
+        run: |
+          node --test --test-reporter=junit --test-reporter-destination=unit-results.xml tests/api.test.js tests/repositories.test.js
+
+      - name: Run coverage
+        working-directory: app
+        run: npm run coverage
+
+      - name: Create isolated application database role
+        env:
+          PGPASSWORD: ci_postgres_admin_only
+        run: |
+          docker exec "${{ job.services.postgres.id }}" psql \
+            --username postgres --dbname task_api_test --set=ON_ERROR_STOP=1 \
+            -c "CREATE ROLE task_api_ci LOGIN PASSWORD 'CI-Database-Password-12345!'; \
+                GRANT CONNECT ON DATABASE task_api_test TO task_api_ci; \
+                GRANT USAGE, CREATE ON SCHEMA public TO task_api_ci;"
+
+      - name: Apply migrations
+        working-directory: app
+        env:
+          DATABASE_HOST: 127.0.0.1
+          DATABASE_PORT: 5432
+          DATABASE_NAME: task_api_test
+          DATABASE_USER: task_api_ci
+          DATABASE_PASSWORD: CI-Database-Password-12345!
+          JWT_SECRET_BASE64: "Q0ktb25seS1ub24tcHJvZHVjdGlvbi1qd3Qtc2VjcmV0LTEyMzQ1"
+          JWT_ISSUER: https://ci.example.invalid
+          JWT_AUDIENCE: task-api-ci
+          LOG_LEVEL: silent
+          NODE_ENV: test
+        run: npm run db:migrate
+
+      - name: Run PostgreSQL integration test
+        working-directory: app
+        env:
+          DATABASE_HOST: 127.0.0.1
+          DATABASE_PORT: 5432
+          DATABASE_NAME: task_api_test
+          DATABASE_USER: task_api_ci
+          DATABASE_PASSWORD: CI-Database-Password-12345!
+          DATABASE_POOL_MAX: 5
+          DATABASE_IDLE_TIMEOUT_MS: 1000
+          DATABASE_CONNECTION_TIMEOUT_MS: 3000
+          DATABASE_QUERY_TIMEOUT_MS: 5000
+          JWT_SECRET_BASE64: "Q0ktb25seS1ub24tcHJvZHVjdGlvbi1qd3Qtc2VjcmV0LTEyMzQ1"
+          JWT_ISSUER: https://ci.example.invalid
+          JWT_AUDIENCE: task-api-ci
+          JWT_EXPIRES_IN_SECONDS: 900
+          NODE_ENV: test
+          LOG_LEVEL: silent
+        run: npm run test:integration
+
+      - name: Production dependency audit
+        working-directory: app
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: application-coverage
+          path: app/coverage/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload unit test report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: application-test-results
+          path: app/unit-results.xml
+          if-no-files-found: ignore
+          retention-days: 14

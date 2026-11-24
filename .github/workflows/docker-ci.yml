@@ -1,0 +1,179 @@
+name: Docker CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-verify:
+    name: Build, verify and scan AMD64 image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+
+      - name: Build final AMD64 image
+        uses: docker/build-push-action@48aba3b46d1b1fec4febb7c5d0c644b249a11355 # v6.10.0
+        with:
+          context: app
+          file: app/Dockerfile
+          target: runtime
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: |
+            production-ready-aws-devops-platform-api:${{ github.sha }}
+            production-ready-aws-devops-platform-api:ci
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Verify image architecture
+        run: |
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' production-ready-aws-devops-platform-api:ci)" = "linux/amd64"
+
+      - name: Verify non-root runtime metadata
+        run: |
+          test "$(docker image inspect --format '{{json .Config.User}}' production-ready-aws-devops-platform-api:ci)" = '"65532:65532"'
+
+      - name: Start isolated PostgreSQL
+        env:
+          POSTGRES_PASSWORD: ci_postgres_admin_only
+          APP_PASSWORD: CI-Database-Password-12345!
+        run: |
+          docker network create ci-api-net
+          docker run -d --name postgres --network ci-api-net \
+            -e POSTGRES_DB=task_api_test \
+            -e POSTGRES_USER=postgres \
+            -e POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+            -e DATABASE_USER=task_api_ci \
+            -e DATABASE_PASSWORD="$APP_PASSWORD" \
+            -v "$PWD/docker/postgres/init/01-create-app-role.sh:/docker-entrypoint-initdb.d/01-create-app-role.sh:ro" \
+            postgres:17-alpine
+          attempts=0
+          while [ "$attempts" -lt 30 ]; do
+            if docker exec postgres pg_isready -U postgres -d task_api_test >/dev/null 2>&1 \
+              && docker exec postgres psql -U postgres -d task_api_test -c "SELECT 1 FROM pg_roles WHERE rolname='task_api_ci'" | grep -q 1; then exit 0; fi
+            sleep 2
+            attempts=$((attempts + 1))
+          done
+          exit 1
+
+      - name: Apply migrations
+        env:
+          APP_PASSWORD: CI-Database-Password-12345!
+          JWT_SECRET: "Q0ktb25seS1ub24tcHJvZHVjdGlvbi1qd3Qtc2VjcmV0LTEyMzQ1"
+        run: |
+          docker run --rm --network ci-api-net \
+            -e NODE_ENV=test -e DATABASE_HOST=postgres -e DATABASE_PORT=5432 \
+            -e DATABASE_NAME=task_api_test -e DATABASE_USER=task_api_ci \
+            -e DATABASE_PASSWORD="$APP_PASSWORD" -e LOG_LEVEL=silent \
+            -e JWT_SECRET_BASE64="$JWT_SECRET" -e JWT_ISSUER=https://ci.example.invalid \
+            -e JWT_AUDIENCE=task-api-ci \
+            production-ready-aws-devops-platform-api:ci src/db/migrate-cli.js
+
+      - name: Start API
+        env:
+          APP_PASSWORD: CI-Database-Password-12345!
+          JWT_SECRET: "Q0ktb25seS1ub24tcHJvZHVjdGlvbi1qd3Qtc2VjcmV0LTEyMzQ1"
+        run: |
+          docker run -d --name api --network ci-api-net \
+            --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+            --security-opt no-new-privileges \
+            --cap-drop ALL \
+            -p 127.0.0.1:3000:3000 \
+            -e NODE_ENV=production -e HOST=0.0.0.0 -e PORT=3000 \
+            -e LOG_LEVEL=info -e CORS_ORIGINS=https://ci.example.invalid \
+            -e DATABASE_HOST=postgres -e DATABASE_PORT=5432 \
+            -e DATABASE_NAME=task_api_test -e DATABASE_USER=task_api_ci \
+            -e DATABASE_PASSWORD="$APP_PASSWORD" \
+            -e JWT_SECRET_BASE64="$JWT_SECRET" -e JWT_ISSUER=https://ci.example.invalid \
+            -e JWT_AUDIENCE=task-api-ci -e SHUTDOWN_TIMEOUT_MS=5000 \
+            production-ready-aws-devops-platform-api:ci
+
+      - name: Verify live, ready, authentication and shutdown
+        run: |
+          attempts=0
+          while [ "$attempts" -lt 30 ]; do
+            if curl -fsS http://127.0.0.1:3000/health/live >/dev/null; then break; fi
+            sleep 2
+            attempts=$((attempts + 1))
+          done
+          curl -fsS http://127.0.0.1:3000/health/live
+          curl -fsS http://127.0.0.1:3000/health/ready
+          test "$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/v1/tasks)" = "401"
+          test "$(curl -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:3000/api/v1/auth/login)" = "400"
+          docker stop --time 10 api
+          test "$(docker inspect api --format '{{.State.ExitCode}}')" = "0"
+
+      - name: Collect Docker diagnostics
+        if: failure()
+        run: |
+          docker logs api 2>&1 | tee docker-api.log || true
+          docker logs postgres 2>&1 | tee docker-postgres.log || true
+
+      - name: Upload Docker diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: docker-diagnostics
+          path: |
+            docker-api.log
+            docker-postgres.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Trivy JSON scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: production-ready-aws-devops-platform-api:ci
+          format: json
+          output: trivy-results.json
+          severity: CRITICAL,HIGH
+          ignore-unfixed: false
+          exit-code: "0"
+
+      - name: Trivy security gate
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: production-ready-aws-devops-platform-api:ci
+          format: table
+          output: trivy-results.txt
+          severity: CRITICAL,HIGH
+          ignore-unfixed: false
+          exit-code: "1"
+
+      - name: Trivy summary
+        if: always()
+        run: |
+          {
+            echo "Final AMD64 image: production-ready-aws-devops-platform-api:ci"
+            echo
+            cat trivy-results.txt
+          } > trivy-summary.txt
+
+      - name: Upload Trivy reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: trivy-container-report
+          path: |
+            trivy-results.json
+            trivy-results.txt
+            trivy-summary.txt
+          if-no-files-found: warn
+          retention-days: 30

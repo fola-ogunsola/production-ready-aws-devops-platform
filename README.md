@@ -136,7 +136,8 @@ implementations.
 │   ├── terraform-architecture.md  # State, environment, security, and validation design
 │   ├── ecr-architecture.md        # Repository, scanning, retention, and IAM design
 │   ├── ecs-architecture.md        # ECS, task roles, secrets, logs, and deployment gating
-│   └── rds-and-secrets-architecture.md
+│   ├── rds-and-secrets-architecture.md
+│   └── ci-cd-architecture.md      # GitHub Actions CI, scanning, artifacts, and local reproduction
 ├── compose.yaml                   # Hardened local API, PostgreSQL, and isolated test services
 ├── .gitignore
 └── README.md
@@ -303,8 +304,8 @@ unimplemented.
 | Terraform infrastructure modules | Partial | VPC, networking, workload security groups, ALB, ECR, ECS, IAM, RDS, and Secrets Manager configuration are implemented; monitoring remains planned. |
 | Terraform validation | Delivered | `terraform fmt -recursive` and `terraform validate` passed for all implemented modules and dev/prod roots using Terraform v1.17.2 and AWS provider v6.73.0. Native mocked tests passed locally. |
 | AWS workload infrastructure | Planned | VPC, RDS, ECS, ALB, ECR, IAM workload roles, and monitoring are not provisioned. ECS and IAM configuration is locally modelled with service creation gated; RDS, Secrets Manager and ACM deployment remain prerequisites. |
-| GitHub Actions validation and deployment | Planned | `.github/workflows/` contains no workflows. |
-| Security scanning and OIDC authentication | Planned | No workflows or AWS identity configuration exist. |
+| GitHub Actions CI | Delivered (offline) | Application unit/coverage/integration, Docker build/runtime/Trivy, and Terraform/Checkov workflows are implemented. They have not yet been reported as passing on GitHub and perform no AWS deployment. |
+| GitHub Actions deployment and AWS OIDC | Planned | No deployment workflow or AWS identity configuration exists. |
 | CloudWatch logs, metrics, dashboards, and alerts | Planned | No monitoring configuration exists. |
 | AWS runbooks and architecture diagrams | Planned | Platform-specific operations and AWS architecture diagrams remain to be added. |
 
