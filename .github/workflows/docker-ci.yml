@@ -169,8 +169,12 @@ jobs:
           {
             echo "Final AMD64 image: production-ready-aws-devops-platform-api:ci"
             echo
-            cat trivy-results.txt
-          } > trivy-summary.txt
+            if [ -f trivy-results.txt ]; then
+              cat trivy-results.txt
+            else
+              echo "Trivy did not produce a table report; inspect the scan step for scanner errors."
+            fi
+          } | tee trivy-summary.txt
 
       - name: Upload Trivy reports
         if: always()

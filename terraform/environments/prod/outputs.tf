@@ -128,6 +128,26 @@ output "ecs_deployment_ready" {
   value       = module.ecs.deployment_ready
 }
 
+output "monitoring_enabled" {
+  description = "Whether production CloudWatch monitoring resources are enabled."
+  value       = module.monitoring.enabled
+}
+
+output "monitoring_dashboard_name" {
+  description = "Production operations dashboard name, or null until monitoring is enabled."
+  value       = module.monitoring.dashboard_name
+}
+
+output "monitoring_alarm_names" {
+  description = "Production CloudWatch alarm names."
+  value       = module.monitoring.alarm_names
+}
+
+output "monitoring_sns_topic_arn" {
+  description = "Production alarm SNS topic ARN when notifications are configured."
+  value       = module.monitoring.sns_topic_arn
+}
+
 output "rds_endpoint" {
   value = module.rds.db_endpoint
 }

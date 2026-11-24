@@ -62,6 +62,8 @@ operations. It never runs `apply` or `destroy`.
 - `pull_request_target` is not used.
 - Trivy scans fail on critical or high vulnerabilities without
   `ignore-unfixed`; the JSON and table reports are uploaded regardless.
+- The table report is also printed in the Actions log after the gate runs, so
+  findings remain visible when the scan step fails.
 - Trivy image scans use `--scanners vuln` and `--skip-version-check` to avoid
   secret-scanner noise and version-update notices while retaining strict
   CRITICAL/HIGH vulnerability gates.
@@ -102,6 +104,16 @@ npm run coverage
 npm audit --omit=dev --audit-level=high
 ```
 
+The application declares Node.js `>=24 <25`; run these commands under Node.js
+24. For example, the Dockerfile's `integration-test` stage installs the test
+dependencies and can run the unit suite without a local Node.js installation:
+
+```sh
+docker build --platform linux/amd64 --target integration-test \
+  -f app/Dockerfile -t platform-node24-tests:local app
+docker run --rm platform-node24-tests:local npm test
+```
+
 PostgreSQL integration test:
 
 ```sh
@@ -122,7 +134,7 @@ Terraform:
 ```sh
 terraform fmt -check -recursive terraform
 cd terraform/modules/vpc && terraform init -backend=false && terraform validate && terraform test
-# Repeat for networking, security, alb, ecr, ecs, iam, rds and secrets.
+# Repeat for networking, security, alb, ecr, ecs, iam, rds, secrets and monitoring.
 cd terraform/environments/dev && terraform init -backend=false && terraform validate
 cd terraform/environments/prod && terraform init -backend=false && terraform validate
 ```
@@ -161,17 +173,28 @@ The following checks were executed locally:
   `no-new-privileges`, and `CAP_ALL` dropped.
 - Runtime: liveness and readiness returned 200, unauthenticated tasks returned
   401, invalid login returned 400, and SIGTERM shutdown returned exit code 0.
-- Terraform formatting and affected module/environment validation passed.
-- All native Terraform mocked suites passed.
+- Terraform `fmt -check -recursive`, monitoring-module validation, and dev/prod
+  root validation passed locally.
+- All 35 native Terraform mocked tests passed across the ten modules, including
+  eight monitoring tests. Mocked test results do not represent AWS deployment.
+- Checkov 3.4.3 reported 198 passed and 19 failed checks. The findings include
+  environment-specific availability/encryption defaults, S3 audit/replication
+  controls, optional WAF/secret rotation, and unattached (not live) security
+  groups; they remain reported and are documented in
+  `terraform-architecture.md`. The scan did not identify findings in the new
+  monitoring module.
 - Actionlint passed after two shell-loop scripts were corrected.
 - Trivy reported 0 CRITICAL and 2 HIGH findings for
   `libssl3t64`: CVE-2026-107494 and CVE-2026-124709. Both currently report no
   fixed version, so no package downgrade or suppression is applied. The strict
   gate remains enabled.
 
-The host Node.js v16 timeout was not reproduced under Node.js 24. The earlier
-host timeout was not treated as an application failure; CI uses Node.js 24
-explicitly and does not add a permissive test timeout.
+The host Node.js v16 test command timed out. Node v16 is outside the package's
+declared Node.js `>=24 <25` engine range. The same 21-test suite passed under
+Node.js 24 in the Docker `integration-test` stage; no test timeout was
+increased and no test was weakened. This confirms the suite passes under its
+supported runtime, but does not establish a more specific cause for the
+unsupported-runtime hang.
 
 The Docker runtime verification uses an isolated PostgreSQL 17 container and
 temporary credentials. It does not connect to development or production data.

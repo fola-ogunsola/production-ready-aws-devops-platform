@@ -1,20 +1,22 @@
 # Container Security Assessment
 
-**Assessment date:** 2026-11-20
+**Assessment date:** 2026-11-24
 **Scope:** The local Linux/AMD64 image intended for future ECS Fargate use and
 the Linux/ARM64 development image. No AWS resources were created and no images
 were published.
 
 ## Executive summary
 
-Docker Scout confirmed the reported baseline on both architectures. The
-vulnerable packages were in the old Debian Bookworm Node base, including npm's
-globally bundled toolchain; they were not findings in the application's
-production dependency tree. The runtime has been moved to a digest-pinned
-Distroless Node.js 24 Debian 13 image. This retains Node 24 and glibc support
-for Argon2 while excluding the shell and global npm/Corepack/Yarn toolchain.
+The earlier Docker Scout scan reported no findings in the Distroless runtime,
+but that was a scanner snapshot before the November 24 OpenSSL advisories. The
+current Trivy scan reports two HIGH findings in OpenSSL's QUIC implementation.
+The image still uses the digest-pinned Distroless Node.js 24 Debian 13 runtime;
+no supported patched image for both findings was available at this assessment.
 
-| Severity | Before (AMD64 and ARM64) | After (AMD64) | After (ARM64) |
+The old Bookworm baseline counts below are historical Docker Scout results,
+not the current status of the runtime image.
+
+| Severity | Historical before (AMD64 and ARM64) | Historical after (AMD64) | Historical after (ARM64) |
 |---|---:|---:|---:|
 | Critical | 0 | 0 | 0 |
 | High | 13 | 0 | 0 |
@@ -22,18 +24,120 @@ for Argon2 while excluding the shell and global npm/Corepack/Yarn toolchain.
 | Low | 42 | 0 | 0 |
 | **Total** | **79** | **0** | **0** |
 
-The final scans each indexed the image and reported **no vulnerable package
-detected**. This is a scanner snapshot, not a guarantee of future safety or
-proof that every component is unexploitable.
+The historical Scout result is not a guarantee of future safety or proof that
+every component is unexploitable. The current Trivy result and risk analysis
+follow below.
+
+## Current Trivy findings and risk assessment
+
+The current final-image scan is for Linux/AMD64, using Trivy 0.70.0 with
+vulnerability scanning enabled, `CRITICAL,HIGH` severity, and
+`ignore-unfixed: false`.
+
+| Finding | Affected component | Installed version | Trivy result | Fixed version |
+|---|---|---|---|---|
+| CVE-2026-107494 | Debian `libssl3t64`; OpenSSL QUIC connection-ID frame queue | `3.5.9-1~deb13u1` | HIGH | None reported by Trivy or Debian at assessment time |
+| CVE-2026-124709 | Debian `libssl3t64`; OpenSSL QUIC stream cleanup | `3.5.9-1~deb13u1` | HIGH | None reported by Trivy or Debian at assessment time |
+
+The final runtime image is `gcr.io/distroless/nodejs24-debian13:nonroot` at
+`sha256:39b0407357c9fadf1a9708d22088f02de21f0e1e8a688474eea2d8701e7d5693`.
+Trivy identifies Debian 13.8 and the installed `libssl3t64` version above.
+The Node runtime is v24.22.3 and reports OpenSSL 3.5.9. Its
+`node_shared_openssl` build setting is false, so Node uses its bundled OpenSSL;
+the application process maps did not show a dynamically loaded `libssl` or
+`libcrypto` library. The OpenSSL code is therefore present both as the
+system package flagged by Trivy and in the Node runtime build.
+
+### CVE-2026-107494
+
+- **Affected functionality:** OpenSSL QUIC handling can enqueue unbounded
+  `RETIRE_CONNECTION_ID` frames when processing retransmitted
+  `NEW_CONNECTION_ID` frames. A malicious QUIC peer can cause memory
+  exhaustion and denial of service.
+- **Application use and reachability:** The API starts a `node:http` server.
+  The source does not use a QUIC API, and Node v24.22.3 does not provide a
+  loadable `node:quic` built-in (`ERR_UNKNOWN_BUILTIN_MODULE`). The service
+  has no QUIC listener. The affected path is not reachable through the
+  application’s configured HTTP listener.
+- **Exploitability and impact:** A reachable application would need to use
+  OpenSSL's QUIC stack and accept the malicious QUIC traffic. Those
+  preconditions are absent in the current app. The described impact is
+  denial of service, not memory disclosure or code execution.
+- **Fix status:** Debian's tracker still marks the Trixie package vulnerable
+  and lists no fixed version. OpenSSL's November 24 advisory rates this issue
+  Low and says the fix is in the public source tree, with OpenSSL 3.5.10
+  scheduled for December 1, 2026. Until Debian publishes a supported package
+  and the pinned runtime image contains it, this is not a verified image fix.
+  Sources: [OpenSSL advisory](https://openssl-library.org/news/secadv/20261124.txt),
+  [Debian tracker](https://security-tracker.debian.org/tracker/CVE-2026-107494).
+- **Compensating controls:** No QUIC listener or UDP ingress is configured;
+  the application uses the HTTP server path, with TLS intended to terminate
+  at the ALB. The container also runs non-root with all capabilities dropped,
+  a read-only root filesystem, and bounded service resources. These controls
+  reduce reachable attack surface or impact but do not patch OpenSSL.
+
+### CVE-2026-124709
+
+- **Affected functionality:** The Debian tracker and Trivy describe a QUIC
+  server retaining rejected peer-stream state after a reset, allowing memory
+  growth over a long-lived connection as a remote client repeatedly opens
+  and resets streams.
+- **Application use and reachability:** The app does not create an OpenSSL
+  QUIC server, accept QUIC streams, or expose a QUIC listener. Therefore the
+  described protocol path is not reachable through its configured HTTP
+  service.
+- **Exploitability and impact:** The reported scenario requires a QUIC
+  server, a completed connection, and repeated peer-controlled stream
+  activity. Its described impact is denial of service through memory
+  exhaustion; no memory disclosure or corruption is described.
+- **Fix status:** Trivy reports no fixed version, and Debian's tracker does
+  not list a fixed package version. I did not find this CVE in the OpenSSL
+  November 24 public advisory, so an upstream release resolving this finding
+  must be confirmed rather than inferred from the CVE-2026-107494 fix.
+  Source: [Debian tracker](https://security-tracker.debian.org/tracker/CVE-2026-124709).
+- **Compensating controls:** No QUIC listener or UDP ingress is configured;
+  the ALB-to-application path is HTTP. Non-root execution, dropped
+  capabilities, a read-only filesystem, and bounded service resources reduce
+  impact but do not resolve the vulnerable code.
+
+### Runtime alternatives and deployment decision
+
+The pinned Distroless digest is also the current
+`nodejs24-debian13:nonroot` index digest, so refreshing the digest does not
+change the affected packages. The current official `node:24-trixie-slim` index
+(`sha256:4d00acb4bcc42c454c4eb801526f7ad7f772ea3bd4fd168c5cc2e384abcbb9d4`)
+also runs Node v24.22.3 with bundled OpenSSL 3.5.9; it does not remediate the
+embedded OpenSSL code. The official `node:24-alpine` index
+(`sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5`)
+runs the same Node/OpenSSL versions; Alpine 3.24.4 has `libssl3` 3.5.9-r0.
+Its Trivy scan found six HIGH Node-package
+issues (including bundled `undici` and `brace-expansion`), while not reporting
+these two CVEs against Alpine's separately versioned system packages. That
+scanner difference is not evidence that the bundled OpenSSL code is fixed.
+Switching to Alpine would also change glibc to musl and invalidate the
+currently validated `argon2.glibc.node` prebuild unless dependencies were
+rebuilt and retested for musl. It is not a justified remediation.
+
+The current Distroless scan has **0 CRITICAL and 2 HIGH findings**; the
+Alpine comparison has **0 CRITICAL and 6 HIGH findings**. Trivy assigns HIGH
+to the Debian findings, while OpenSSL's public advisory rates
+CVE-2026-107494 Low. The CVE-2026-124709 tracker description also calls its
+impact Low, but no matching public OpenSSL advisory was located. The
+configured CI policy remains CRITICAL/HIGH and is not being weakened based on
+this reachability analysis. Docker CI should continue to fail closed. Do not
+deploy under the current gate without either a supported image containing
+verified fixes for both CVEs or a narrowly scoped, documented, time-limited
+exception approved by the responsible security/release owner. No exception
+has been added.
 
 ## Images and reproducibility
 
 | Purpose | Image | Pinned index digest |
 |---|---|---|
 | Dependency installation and integration tests | `node:24-trixie-slim` | `sha256:af02d57b57719b9657a45199a79264a9437940cd55b3c7b3fc99615654f124a0` |
-| Final Node.js runtime | `gcr.io/distroless/nodejs24-debian13:nonroot` | `sha256:6abfcb367ebc291572c774c1592a986be2ab26a2486f73093401327495a5962a` |
+| Final Node.js runtime | `gcr.io/distroless/nodejs24-debian13:nonroot` | `sha256:39b0407357c9fadf1a9708d22088f02de21f0e1e8a688474eea2d8701e7d5693` |
 
-| Final local artifact | Platform | Size | Docker Scout |
+| Historical final local artifact (2026-11-20) | Platform | Size | Docker Scout snapshot |
 |---|---|---:|---|
 | `production-ready-aws-devops-platform-api:amd64` | Linux/AMD64 | 167,597,275 bytes | No vulnerable package detected |
 | `production-ready-aws-devops-platform-api:arm64` | Linux/ARM64 | 174,666,942 bytes | No vulnerable package detected |
@@ -74,8 +178,9 @@ results.
 
 ## Remaining baseline medium- and low-severity findings
 
-The table lists the other baseline findings for completeness. The final scans
-reported none of these CVEs on either architecture.
+The table lists the other baseline findings for completeness. The historical
+Scout scan reported none of these CVEs in the Distroless images on either
+architecture; this is separate from the current Trivy scan above.
 
 | Package and installed version | Origin | CVEs (severity) | Fix information reported by Scout |
 |---|---|---|---|
@@ -103,19 +208,30 @@ reported none of these CVEs on either architecture.
 
 ## Architecture comparison
 
-The baseline AMD64 and ARM64 scans produced the same 0/13/24/42 severity
-counts, affected package versions, and high-severity CVEs. The final AMD64 and
-ARM64 scans both report zero findings. Docker Scout did not identify an
-architecture-specific vulnerability difference in these images.
+The historical Docker Scout AMD64 and ARM64 scans produced the same
+0/13/24/42 severity counts, affected package versions, and high-severity CVEs.
+The current Trivy result is for AMD64 only and reports two HIGH findings.
+Docker Scout's earlier scan did not identify an architecture-specific
+vulnerability difference; ARM64 has not been rescanned with the current Trivy
+database for these advisories.
 
 ## Validation evidence
 
-- Built the final Node 24 runtime for Linux/AMD64 and Linux/ARM64 from the
-  pinned image digests.
-- Docker Scout indexed each final image and reported no vulnerable packages.
+- Docker Scout indexed the earlier final Node 24 runtime for Linux/AMD64 and
+  Linux/ARM64 and reported no vulnerable packages in that scan snapshot.
+- Trivy 0.70.0 scanned the final Linux/AMD64 image with HIGH/CRITICAL
+  filtering and reported the two OpenSSL findings documented above.
+- Trivy 0.70.0 scanned the official `node:24-alpine` alternative: it reported
+  six HIGH Node-package findings and did not report these OpenSSL CVEs against
+  Alpine's system packages. The Alpine image still embeds OpenSSL 3.5.9, so
+  that scanner result does not establish remediation.
+- Inspected the running final image: Node v24.22.3 reports OpenSSL 3.5.9,
+  `node_shared_openssl=false`, no `node:quic` built-in, and no dynamically
+  mapped `libssl` or `libcrypto` after loading Argon2.
 - `npm audit` reported zero vulnerabilities in the complete lockfile dependency
   tree.
-- All 21 application unit tests passed; line coverage was 86.99%.
+- The latest Node.js 24 run passed all 21 application unit tests; line coverage
+  was 86.91%.
 - The isolated PostgreSQL integration test passed.
 - The native Argon2 module loaded and successfully hashed/verified a password
   in both final architecture images.
@@ -127,10 +243,15 @@ architecture-specific vulnerability difference in these images.
 - SIGTERM shutdown emitted both `Graceful shutdown started` and
   `HTTP server closed`.
 
-No unresolved critical or high findings remain in the final Scout reports;
-therefore no Scout-identified high finding currently blocks deployment.
-However, AWS deployment remains out of scope and must still satisfy the
-platform's network, IAM, secrets, TLS, logging, and operational requirements.
+As of this assessment, Trivy reports two HIGH findings and the Docker CI
+security gate should fail. The OpenSSL QUIC paths are not reachable through
+the current HTTP-only application listener, but the code remains present in
+the runtime and this does not constitute a patch. Production deployment
+should remain blocked under the existing policy until both fixes are verified
+in a supported pinned image or a responsible security/release owner approves
+a narrow, documented, time-limited exception. No AWS deployment occurred;
+any future deployment must also satisfy network, IAM, secrets, TLS, logging,
+and operational requirements.
 
 ## Implemented container security controls
 

@@ -95,6 +95,13 @@ jobs:
           terraform validate
           terraform test
 
+      - name: Initialize and validate monitoring module
+        working-directory: terraform/modules/monitoring
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate
+          terraform test
+
       - name: Validate development environment
         working-directory: terraform/environments/dev
         run: |

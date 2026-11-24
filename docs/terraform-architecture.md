@@ -2,18 +2,21 @@
 
 ## Status and scope
 
-This repository now contains reusable VPC and networking modules plus dev/prod
-root wiring in `eu-west-1`. The modules implement DNS-enabled VPCs, public and
-private subnets across multiple availability zones, internet and NAT gateways,
-explicit route tables, private NAT routes, an S3 gateway endpoint, VPC flow
-logs with a customer-managed encrypted CloudWatch destination, and restricted
-default security groups.
+This repository contains reusable Terraform modules and separate dev/prod
+roots in `eu-west-1`. Implemented modules cover VPC and networking, workload
+security groups, ALB, ECR, ECS Fargate, IAM, RDS and Secrets Manager
+integration, and CloudWatch monitoring. The network modules implement
+DNS-enabled VPCs, public and private subnets across multiple availability
+zones, internet and NAT gateways, explicit route tables, private NAT routes,
+an S3 gateway endpoint, and VPC flow logs with a customer-managed encrypted
+CloudWatch destination.
 
 The bootstrap and environment configurations have **not been applied**. No
-AWS resources have been created and no live AWS credentials or plans are used
-by local validation or mocked module tests. Workload security groups, ALB, and
-ECR, ECS, IAM, RDS and externally populated Secrets Manager metadata are
-implemented locally. Monitoring remains a subsequent implementation stage.
+AWS resources have been created. Local validation and mocked module tests do
+not require live AWS credentials. ECS service creation is explicitly gated by
+deployment prerequisites, and monitoring is disabled by default in both
+environments. No Terraform apply, destroy, AWS plan, or deployment was
+performed.
 
 Do not run `terraform apply` or `terraform destroy` as part of validation.
 
@@ -171,9 +174,11 @@ tagged for development cost attribution. The prod example carries a distinct
 environment and cost-centre tag. Both default to `eu-west-1`, use the same
 provider and tagging conventions, and can be configured independently.
 
-The directory/foundation layer does not yet configure actual capacity,
-Availability Zones, NAT, backups, scaling, or deletion protection for
-application resources. The intended follow-on tradeoff is:
+The environment roots provide application capacity, availability-zone,
+networking, backup, scaling, and deletion-protection inputs through the
+implemented modules. Defaults are intended as reviewable examples, not proof
+that a live deployment meets a specific availability objective. The current
+tradeoffs include:
 
 - **Dev:** minimize idle cost with reduced capacity and carefully chosen
   shared/single-AZ options where acceptable, while retaining private workloads,
@@ -183,9 +188,8 @@ application resources. The intended follow-on tradeoff is:
   scaling, and explicit deletion protection. This increases recurring cost
   and operational complexity.
 
-These are design intentions, not deployed behavior or current Terraform
-variables. Each should be made an explicit, reviewed module input when the
-relevant module is implemented.
+These are configured Terraform defaults, not deployed behavior. Review and
+adjust them against workload requirements before any deployment.
 
 ## Validation and code quality
 
@@ -201,30 +205,28 @@ terraform -chdir=terraform/environments/prod init -backend=false
 terraform -chdir=terraform/environments/prod validate
 ```
 
-Formatting and validation were verified with Terraform `1.10.5`. The host's
-preinstalled Terraform `1.5.7` is below the declared minimum and cannot
-initialize these roots. `init -backend=false` does not configure or access
-remote state. Do not run
-`plan` against the real backend as a substitute for validation until the
+`init -backend=false` does not configure or access remote state and does not
+need AWS credentials. `terraform validate` checks syntax and internal
+consistency, not IAM access, AWS quotas, provider-side constraints, or whether
+a future plan is safe. Module `terraform test` cases use Terraform's mocked
+providers and must not be presented as deployed AWS behavior. Do not run a
+plan against a real backend as a substitute for offline validation until the
 backend bucket and AWS account have been deliberately set up and verified.
-Terraform `validate` checks syntax and internal consistency, not IAM access,
-AWS quotas, or whether a future plan is safe.
 
-## Proposed infrastructure sequence
+## Implemented module sequence and remaining work
 
-1. Review and separately approve/apply the backend bootstrap; secure its local
-   state and verify bucket settings.
-2. Configure and verify dev/prod S3 backends and account guards.
-3. Implement and review the VPC network module and its security-group
-   boundaries, including CIDR, AZ/subnet layout, egress, and endpoint tradeoffs.
-4. Add ECR, then RDS with private connectivity, encryption, backups, and
-   carefully managed credentials.
-5. Add ECS task/execution roles and Fargate service, then ALB and health-based
-   routing; ensure only the ALB can reach the application port.
-6. Add logging, metrics, alarms, scaling, deployment protections, and
-   environment-specific operational controls.
-7. Validate plans and security posture in dev before reviewing a production
-   plan separately.
+The reusable VPC, networking, security-group, ALB, ECR, RDS, IAM, ECS, and
+monitoring modules are wired into both environment roots. Native Terraform
+tests with mocked providers cover module behavior without creating AWS
+resources. ECS services remain gated until all deployment prerequisites exist;
+CloudWatch alarms, dashboard, and optional SNS resources remain disabled until
+monitoring is explicitly enabled.
+
+Remaining work is operational rather than a missing module stage: configure an
+approved backend and AWS identity only when deployment is authorized; verify
+real account quotas, AZ availability, endpoints, certificates, secret values,
+metric behavior, alarm delivery, and cost; then review a plan in the intended
+account. No deployment or AWS-side verification is claimed here.
 
 ## VPC and networking implementation stage
 
@@ -284,23 +286,52 @@ resources are created by this module.
 
 Remaining limitations:
 
-- ALB and ECS/RDS resources are not implemented.
+- Security groups are not attached to any live AWS workload.
 - ALB approved-CIDR defaults can be widened when public internet ingress is
   intended; production should use an explicit allowlist.
 - ECS HTTPS egress defaults to `0.0.0.0/0` unless a caller narrows it. This
   preserves NAT-based AWS connectivity but is not an implied AWS deployment.
-- The module does not yet create VPC endpoints for ECR, Secrets Manager,
+- The networking module does not create interface VPC endpoints for ECR, Secrets Manager,
   CloudWatch, SSM, or ECS. It also does not validate live endpoint service names.
 
 ## Security scan findings
 
-Checkov passed 50 checks and reported three CKV2_AWS_5 findings for the
-security module: each new security group is not yet attached to a live ALB,
-ECS service, or RDS instance. This is an expected stage-boundary limitation
-because those resources intentionally have not been implemented or deployed.
-The findings will be rechecked when the ALB, ECS, and RDS modules attach the
-groups. They are not suppressed. Environment scans repeat the same findings
-because they reuse the security module.
+The latest local Checkov scan (3.4.3) reported **198 passed and 19 failed
+checks** across the Terraform directory. Findings remain visible and are not
+suppressed. The 19 failures are:
+
+- Dev ALB deletion protection is disabled by its configurable development
+  default (CKV_AWS_150).
+- ECR uses valid AWS-managed AES256 encryption by default; Checkov requires
+  KMS for CKV_AWS_136. The module supports KMS/KMS_DSSE for callers with an
+  approved key and key policy.
+- Checkov flags the production ECS Container Insights expression
+  (CKV_AWS_65), although the production variable defaults to enabled. Confirm
+  the value is rendered as enabled before deployment and resolve the static
+  scanner finding rather than treating it as passed.
+- Dev RDS deletion protection and Multi-AZ are disabled by configurable
+  development defaults (CKV_AWS_293 and CKV_AWS_157).
+- Three security-group attachment findings (CKV2_AWS_5) indicate there are no
+  live ALB, ECS, or RDS attachments. The Terraform modules do reference these
+  groups, but no AWS resources have been created.
+- The state and ALB access-log S3 buckets have no event notifications or
+  server access-logging destination configured, and no cross-region
+  replication destination is defined (CKV2_AWS_62, CKV_AWS_18, CKV_AWS_144).
+  These require separate audit/DR destination and cost decisions.
+- Standard ALB access-log bucket delivery uses SSE-S3; Checkov's KMS-only
+  bucket encryption check (CKV_AWS_145) does not match that delivery
+  constraint. Do not change the required delivery encryption without verifying
+  AWS support.
+- Checkov reports the ALB may be public without an attached WAF and does not
+  assert coverage for a managed rule set (CKV2_AWS_76). An approved WAF policy
+  must be selected for any future public deployment.
+- The metadata-only Secrets Manager secrets do not configure automatic
+  rotation (CKV2_AWS_57). Rotation requires an approved application-specific
+  rotation design and integration test.
+
+The full scan reported no findings against the new monitoring module. This
+does not validate actual AWS metric behavior, dashboard rendering, SNS
+encryption/delivery, or live resource attachments.
 
 No public RDS CIDR rule or SSH rule is present. ECS and RDS inbound rules
 use security-group references rather than public CIDRs. RDS has no outbound
@@ -309,33 +340,11 @@ because internet ingress is their purpose. ECS HTTPS CIDRs are caller-
 configurable and should be narrowed or replaced with interface/gateway VPC
 endpoints before AWS deployment.
 
-## ALB Checkov findings
-
-The final ALB module scan found 4 remaining findings after SSE-S3 lifecycle,
-ACL, multipart-abort, and deletion-protection controls were added:
-
-- Event notifications are not enabled. This access-log bucket is not an
-  application event bus; a separate notification/SIEM integration is a future
-  operational decision.
-- Server access logging is not enabled on the access-log bucket. Recursive
-  bucket logging was not configured, and no central audit bucket destination
-  has yet been approved.
-- Cross-region replication is not enabled. Replication is a deployment-specific
-  recovery requirement and should be implemented with a separately approved
-  destination, KMS key, and cost model.
-- A public ALB can remain without WAF unless `waf_web_acl_arn` is supplied.
-  The module accepts an existing WAFv2 Web ACL ARN and avoids deploying or
-  assuming an unspecified WAF policy.
-- WAF policy coverage for an AMR/Log4j managed rule set is not asserted.
-  Deployment should attach an independently reviewed WAFv2 Web ACL containing
-  the account-approved rule set.
-- Checkov CKV_AWS_145 is not satisfied with KMS encryption because current
-  standard ALB access-log delivery explicitly requires SSE-S3. This finding is
-  an encryption-method compatibility false positive, not a blanket suppression.
-
-These findings are recorded rather than suppressed. Production should supply
-both an approved WAFv2 Web ACL and access-log destination after AWS account
-controls are reviewed.
+ALB-related findings are included in the repository-wide Checkov counts above.
+The module supports WAF attachment, but no Web ACL or central audit bucket is
+assumed. Event notifications, access-log bucket server logging, and replication
+remain deployment-specific decisions; the findings are recorded rather than
+suppressed.
 
 ## Application Load Balancer stage
 
@@ -348,8 +357,9 @@ The reusable ALB module creates:
 - Optional HTTP TCP 80 listener that redirects to HTTPS with HTTP 301.
 - Optional private S3 access-log storage, or an existing protected bucket ID.
 
-The target group performs no static registration. ECS Fargate task IP addresses
-will be dynamically registered during a later ECS service implementation.
+The target group performs no static registration. The gated ECS Fargate
+service dynamically registers task IP addresses when its deployment
+prerequisites are supplied.
 Readiness is intentionally used instead of a liveness-only endpoint because
 database availability affects whether the API can safely accept traffic.
 
@@ -430,23 +440,13 @@ pull permissions, typically `ecr:GetAuthorizationToken`,
 `ecr:BatchCheckLayerAvailability`, `ecr:GetDownloadUrlForLayer`, and
 `ecr:BatchGetImage`.
 
-ECS Checkov findings:
-
-- CKV_AWS_338 reports that development log retention is shorter than one year.
-  The 30-day development default is intentionally cost-conscious and production
-  uses 365 days; retention remains caller-configurable.
-- CKV_AWS_65 reports that development Container Insights is disabled. The
-  development default avoids monitoring overhead and cost, while production
-  enables Container Insights.
-- Secret scanning previously reported synthetic test ARN text as entropy. The
-  test fixtures were replaced with clearly marked placeholder ARNs and contain
-  no credentials.
-
-Checkov reports CKV_AWS_136 for the default AES256 ECR encryption. AWS-managed
-AES256 ECR encryption is valid and is kept as the default because no customer
-key material or key-ARN is required. The module supports KMS and KMS_DSSE for
-callers that need customer-managed key policy or compliance controls. This
-finding is recorded, not suppressed.
+The current full Checkov findings related to ECR and ECS are summarized above.
+Earlier targeted scans reported development log-retention tradeoffs, but the
+latest repository-wide scan did not include CKV_AWS_338 among its 19 failures.
+Production Container Insights defaults to enabled in Terraform; the remaining
+CKV_AWS_65 scanner result is still an unresolved static finding. ECR
+AES256 encryption remains configurable to KMS/KMS_DSSE and is not represented
+as satisfying the KMS-only Checkov policy.
 
 ## ECS Fargate and IAM stage
 
@@ -476,8 +476,33 @@ administrator or blanket application permissions.
 
 Secret values are not represented in module variables or plain environment
 values. ECS task-definition secret references require existing secret ARNs.
-Database host, name and user remain non-secret task environment values; RDS
-and Secrets Manager resources are not created in this stage.
+Database host, name and user remain non-secret task environment values.
+Reusable RDS and Secrets Manager modules are present, but no corresponding
+AWS resources or secret values have been created.
+
+## CloudWatch monitoring and operational controls
+
+The `monitoring` module and both environment roots define configurable
+CloudWatch alarms for ECS service CPU/memory and optional Container Insights
+task count, ALB target health and error/latency metrics, and RDS connections,
+storage, and memory. It also builds an environment dashboard from the
+available resource identifiers and can optionally create an encrypted SNS
+topic for alarm delivery. The module reuses the ECS log group and does not
+create a second application log group.
+
+`monitoring_enabled` defaults to `false` in both environments. ECS service
+alarms require the gated ECS service to be configured; task-count alarms also
+require Container Insights. SNS subscriptions are not created, so no
+notification destination is automatically added. Alarm periods, evaluation
+counts, thresholds, missing-data behavior, metric dimensions, prerequisites,
+and costs are described in
+[`monitoring-and-observability.md`](./monitoring-and-observability.md).
+Seven operator runbooks are under [`runbooks/`](./runbooks/).
+
+Eight monitoring module native tests passed with a mocked AWS provider.
+Terraform validation of the module passed locally. These results validate
+Terraform configuration logic only: dashboards, metric availability, alarms,
+SNS encryption and delivery, and AWS charges have not been tested against AWS.
 
 ## Safe teardown
 

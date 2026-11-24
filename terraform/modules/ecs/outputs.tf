@@ -8,6 +8,11 @@ output "cluster_name" {
   value       = aws_ecs_cluster.this.name
 }
 
+output "service_name" {
+  description = "Stable ECS service name; the service resource is still deployment-gated."
+  value       = local.service_name
+}
+
 output "log_group_name" {
   description = "CloudWatch Logs group name used by ECS tasks."
   value       = aws_cloudwatch_log_group.ecs.name

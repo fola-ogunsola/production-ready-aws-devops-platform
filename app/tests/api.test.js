@@ -170,7 +170,16 @@ describe('application startup and health checks', () => {
   });
 
   it('returns 503 without leaking errors when the readiness query fails', async () => {
+    let logOutput = '';
     const app = testApp({
+      logger: pino(
+        { level: 'warn' },
+        {
+          write(line) {
+            logOutput += line;
+          },
+        },
+      ),
       isReady: async () => {
         throw new Error('database connection details');
       },
@@ -178,6 +187,9 @@ describe('application startup and health checks', () => {
     const response = await request(app).get('/health/ready').expect(503);
     assert.deepEqual(response.body, { status: 'not_ready' });
     assert.equal(JSON.stringify(response.body).includes('database connection'), false);
+    assert.equal(logOutput.includes('Readiness check failed'), true);
+    assert.equal(logOutput.includes('"errorName":"Error"'), true);
+    assert.equal(logOutput.includes('database connection details'), false);
   });
 });
 

@@ -76,8 +76,9 @@ environment fields. The task definition uses ECS secret references for:
 - `JWT_SECRET_BASE64`
 
 PostgreSQL host, database name, and application user are non-secret environment
-values. JWT issuer and audience are also non-secret values. RDS and Secrets
-Manager resources are intentionally not created in this stage.
+values. JWT issuer and audience are also non-secret values. Reusable RDS and
+Secrets Manager integration modules are implemented in Terraform, but their
+resources have not been created in AWS.
 
 Secret rotation requires a new ECS deployment or force-new-deployment unless
 the application and ECS execution environment support a separate refresh
@@ -100,6 +101,12 @@ retention:
 The task-execution role receives `CreateLogStream` and `PutLogEvents` only for
 the matching log-group ARN pattern.
 
+The separate monitoring module reuses this log group for documented Logs
+Insights queries and defines optional ECS, ALB, and RDS metric alarms and a
+dashboard. Monitoring is disabled by default in both environments. It creates
+no duplicate application log group, and no dashboard or alarm has been
+deployed or verified against live CloudWatch metrics.
+
 ## Deployment behavior
 
 The service uses the ECS deployment controller and enables the ECS deployment
@@ -112,10 +119,11 @@ Tasks use private subnets across the configured availability zones and
 
 ## Missing deployment dependencies
 
-The repository does not yet contain deployed RDS, real Secrets Manager
-secrets, or an ACM certificate. No placeholder secret values or fake database
-endpoints are used. ECS infrastructure is modelled and tested, but task definitions and
-services remain gated until:
+The repository does not contain deployed RDS, real Secrets Manager secrets,
+or an ACM certificate. Reusable RDS and secret-reference configuration exists,
+but no AWS resources or secret values are present. No placeholder secret
+values or fake database endpoints are used. ECS infrastructure is modelled
+and tested, but task definitions and services remain gated until:
 
 - The HTTPS listener ARN is available
 - An immutable ECR image exists
@@ -128,7 +136,10 @@ services remain gated until:
 ECS Fargate pricing is based on task CPU, memory, runtime, and desired task
 count. Development uses a single small task and short log retention. Production
 uses more tasks, larger resources, Container Insights, and longer log retention.
-Container Insights and NAT access may create additional operational cost.
+Container Insights, CloudWatch alarms/dashboards, SNS, and NAT access may
+create additional operational cost. Monitoring is disabled by default;
+enabling it should follow a review of the thresholds, selected metrics, and
+expected charges.
 
 ## Deployment prerequisites
 

@@ -298,6 +298,115 @@ variable "rds_deletion_protection" {
   default = false
 }
 
+variable "monitoring_enabled" {
+  description = "Explicitly enable development CloudWatch dashboards, alarms, and optional SNS resources."
+  type        = bool
+  default     = false
+}
+
+variable "monitoring_sns_topic_arn" {
+  description = "Optional existing SNS topic ARN for monitoring alarms."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "monitoring_create_sns_topic" {
+  description = "Create an encrypted development SNS topic when monitoring is enabled."
+  type        = bool
+  default     = false
+}
+
+variable "monitoring_alarm_actions_enabled" {
+  description = "Attach notification actions when a topic is configured."
+  type        = bool
+  default     = true
+}
+
+variable "monitoring_alarm_period_seconds" {
+  description = "CloudWatch alarm period in seconds."
+  type        = number
+  default     = 300
+}
+
+variable "monitoring_evaluation_periods" {
+  description = "Number of alarm periods evaluated."
+  type        = number
+  default     = 2
+}
+
+variable "monitoring_datapoints_to_alarm" {
+  description = "Breaching datapoints required to alarm."
+  type        = number
+  default     = 2
+}
+
+variable "monitoring_ecs_min_running_tasks" {
+  description = "Minimum ECS RunningTaskCount when Container Insights task alarms are enabled."
+  type        = number
+  default     = 1
+}
+
+variable "monitoring_ecs_cpu_threshold_percent" {
+  description = "Development ECS service CPU alarm threshold."
+  type        = number
+  default     = 85
+}
+
+variable "monitoring_ecs_memory_threshold_percent" {
+  description = "Development ECS service memory alarm threshold."
+  type        = number
+  default     = 85
+}
+
+variable "monitoring_alb_unhealthy_targets_threshold" {
+  description = "Development ALB unhealthy-target count threshold."
+  type        = number
+  default     = 0
+}
+
+variable "monitoring_alb_target_5xx_threshold" {
+  description = "Development target-generated HTTP 5xx count per alarm period."
+  type        = number
+  default     = 10
+}
+
+variable "monitoring_alb_lb_5xx_threshold" {
+  description = "Development ALB-generated HTTP 5xx count per alarm period."
+  type        = number
+  default     = 10
+}
+
+variable "monitoring_alb_response_time_seconds" {
+  description = "Development average target response-time threshold."
+  type        = number
+  default     = 1.5
+}
+
+variable "monitoring_rds_cpu_threshold_percent" {
+  description = "Development RDS CPU alarm threshold."
+  type        = number
+  default     = 80
+}
+
+variable "monitoring_rds_free_storage_threshold_bytes" {
+  description = "Development RDS free-storage alarm threshold in bytes."
+  type        = number
+  default     = 5368709120
+}
+
+variable "monitoring_rds_connection_threshold" {
+  description = "Capacity-derived development PostgreSQL connection alarm threshold; recalculate if the instance class changes."
+  type        = number
+  default     = 80
+}
+
+variable "monitoring_rds_freeable_memory_threshold_bytes" {
+  description = "Development RDS freeable-memory alarm threshold in bytes."
+  type        = number
+  default     = 268435456
+}
+
 variable "database_subnet_cidrs" {
   description = "Dedicated private database subnet CIDRs for development."
   type        = list(string)

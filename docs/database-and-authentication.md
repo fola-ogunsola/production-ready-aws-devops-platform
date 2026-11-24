@@ -157,7 +157,9 @@ docker compose --env-file app/.env ...
 
 Production should use a managed secret store, distinct per-environment
 credentials, key rotation, database TLS, and an appropriately restricted
-database role. Those integrations are not implemented yet.
+database role. Terraform models a private RDS PostgreSQL instance and
+Secrets Manager metadata/secret references, but these resources and secret
+values have not been created or tested in AWS.
 
 ## Local testing
 

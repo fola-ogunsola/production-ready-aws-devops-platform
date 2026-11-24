@@ -154,3 +154,37 @@ module "secrets" {
   create_jwt_secret               = true
   tags                            = local.common_tags
 }
+
+module "monitoring" {
+  source = "../../modules/monitoring"
+
+  enabled                                    = var.monitoring_enabled
+  name_prefix                                = local.name_prefix
+  aws_region                                 = var.aws_region
+  tags                                       = local.common_tags
+  existing_sns_topic_arn                     = var.monitoring_sns_topic_arn
+  create_sns_topic                           = var.monitoring_create_sns_topic
+  alarm_actions_enabled                      = var.monitoring_alarm_actions_enabled
+  alarm_period_seconds                       = var.monitoring_alarm_period_seconds
+  evaluation_periods                         = var.monitoring_evaluation_periods
+  datapoints_to_alarm                        = var.monitoring_datapoints_to_alarm
+  ecs_cluster_name                           = module.ecs.cluster_name
+  ecs_service_name                           = module.ecs.deployment_ready ? module.ecs.service_name : null
+  ecs_service_deployed                       = module.ecs.deployment_ready
+  container_insights_enabled                 = var.ecs_enable_container_insights
+  ecs_min_running_tasks                      = var.monitoring_ecs_min_running_tasks
+  ecs_cpu_threshold_percent                  = var.monitoring_ecs_cpu_threshold_percent
+  ecs_memory_threshold_percent               = var.monitoring_ecs_memory_threshold_percent
+  load_balancer_arn                          = module.alb.alb_arn
+  target_group_arn                           = module.alb.target_group_arn
+  alb_unhealthy_targets_threshold            = var.monitoring_alb_unhealthy_targets_threshold
+  alb_target_5xx_threshold                   = var.monitoring_alb_target_5xx_threshold
+  alb_load_balancer_5xx_threshold            = var.monitoring_alb_lb_5xx_threshold
+  alb_target_response_time_threshold_seconds = var.monitoring_alb_response_time_seconds
+  rds_instance_identifier                    = module.rds.db_instance_id
+  rds_cpu_threshold_percent                  = var.monitoring_rds_cpu_threshold_percent
+  rds_free_storage_threshold_bytes           = var.monitoring_rds_free_storage_threshold_bytes
+  rds_connection_threshold                   = var.monitoring_rds_connection_threshold
+  rds_freeable_memory_threshold_bytes        = var.monitoring_rds_freeable_memory_threshold_bytes
+  application_log_group_name                 = module.ecs.log_group_name
+}

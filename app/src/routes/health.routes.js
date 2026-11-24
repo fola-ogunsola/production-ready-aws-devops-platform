@@ -13,11 +13,18 @@ export function createHealthRouter(isReady) {
 
   router
     .route('/ready')
-    .get(async (_request, response) => {
+    .get(async (request, response) => {
       let ready = false;
       try {
         ready = await isReady();
-      } catch {
+      } catch (error) {
+        request.log?.warn(
+          {
+            requestId: request.id,
+            errorName: error instanceof Error ? error.name : 'UnknownError',
+          },
+          'Readiness check failed',
+        );
         ready = false;
       }
       if (!ready) {
